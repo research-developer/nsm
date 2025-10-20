@@ -27,6 +27,7 @@ from typing import List, Dict, Tuple, Set, Optional
 import random
 import torch
 from torch import Tensor
+from torch_geometric.data import Data
 
 from .triple import SemanticTriple
 from .dataset import BaseSemanticTripleDataset
@@ -513,3 +514,62 @@ class PlanningTripleDataset(BaseSemanticTripleDataset):
             'num_decompositions': sum(len(actions) for actions in goal_to_actions.values()),
             'decomposition_depth': max_depth
         }
+
+    def __len__(self) -> int:
+        """
+        Return number of problems (not triples).
+
+        This ensures the dataset returns complete problems as samples,
+        matching the architecture of Causal and KG datasets.
+
+        Returns:
+            Number of planning problems in dataset
+        """
+        return len(self.problems)
+
+    def __getitem__(self, idx: int) -> Tuple[Data, Tensor]:
+        """
+        Get complete problem as a graph.
+
+        Returns a graph containing ALL triples for the problem at index idx,
+        along with a problem-level label (valid/invalid plan).
+
+        Args:
+            idx: Problem index (0 to len(self.problems)-1)
+
+        Returns:
+            Tuple of (graph, label):
+                - graph: PyG Data object containing all triples for this problem
+                - label: Binary label (1 for valid plan, 0 for invalid)
+
+        Note:
+            This override ensures Planning matches Causal/KG architecture:
+            - Each sample = complete problem (not individual triple)
+            - Dataset length = number of problems (not number of triples)
+            - Model sees full problem context for reasoning
+        """
+        from torch_geometric.data import Data
+
+        if idx >= len(self.problems):
+            raise IndexError(f"Problem index {idx} out of range (0-{len(self.problems)-1})")
+
+        problem = self.problems[idx]
+        problem_idx = problem['idx']
+
+        # Get all triples for this problem
+        start = problem['offset']
+        end = start + problem['num_triples']
+        triple_indices = list(range(start, end))
+
+        # Build graph from all triples
+        graph = self.get_graph_for_triples(triple_indices)
+
+        # Apply transform if provided
+        if self.transform is not None:
+            graph = self.transform(graph)
+
+        # Problem-level label (valid or invalid plan)
+        is_valid = (problem_idx % 100) < 50
+        label = torch.tensor(1 if is_valid else 0, dtype=torch.long)
+
+        return graph, label
