@@ -16,6 +16,12 @@ from nsm.evaluation.preflight_checks import (
     PreflightCheckWarning
 )
 
+from nsm.evaluation.process_cleanup import (
+    check_and_cleanup,
+    find_training_processes,
+    kill_process
+)
+
 __all__ = [
     'run_preflight_checks',
     'check_dataset_balance',
@@ -26,4 +32,7 @@ __all__ = [
     'check_class_weights',
     'PreflightCheckError',
     'PreflightCheckWarning',
+    'check_and_cleanup',
+    'find_training_processes',
+    'kill_process',
 ]
