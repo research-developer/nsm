@@ -1,0 +1,86 @@
+name: nsm
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - pyg
+  - defaults
+
+dependencies:
+  # Python
+  - python=3.10
+
+  # Core Deep Learning
+  - pytorch=2.1.0
+  - pytorch-cuda=11.8
+  - torchvision=0.16.0
+  - torchaudio=2.1.0
+
+  # Scientific Computing
+  - numpy=1.24.3
+  - scipy=1.11.3
+  - pandas=2.1.1
+
+  # Graph Processing
+  - networkx=3.1
+
+  # Visualization
+  - matplotlib=3.8.0
+  - seaborn=0.12.2
+
+  # Development Tools
+  - pytest=7.4.2
+  - pytest-cov=4.1.0
+  - black=23.9.1
+  - isort=5.12.0
+  - flake8=6.1.0
+  - mypy=1.5.1
+
+  # Jupyter (for experimentation)
+  - jupyter=1.0.0
+  - ipykernel=6.25.2
+  - notebook=7.0.4
+
+  # Utilities
+  - pyyaml=6.0.1
+  - tqdm=4.66.1
+  - click=8.1.7
+
+  # pip dependencies (not available via conda)
+  - pip=23.2.1
+  - pip:
+      # PyTorch Geometric and extensions
+      - torch-geometric==2.4.0
+      - torch-scatter==2.1.2+pt21cu118 -f https://data.pyg.org/whl/torch-2.1.0+cu118.html
+      - torch-sparse==0.6.18+pt21cu118 -f https://data.pyg.org/whl/torch-2.1.0+cu118.html
+      - torch-cluster==1.6.3+pt21cu118 -f https://data.pyg.org/whl/torch-2.1.0+cu118.html
+      - torch-spline-conv==1.2.2+pt21cu118 -f https://data.pyg.org/whl/torch-2.1.0+cu118.html
+
+      # Experiment Tracking
+      - tensorboard==2.14.1
+      - wandb==0.15.12
+
+      # Additional Testing
+      - pytest-benchmark==4.0.0
+      - pytest-timeout==2.1.0
+      - coverage[toml]==7.3.2
+
+      # Code Quality
+      - pre-commit==3.4.0
+      - ruff==0.0.292
+
+      # Type Checking
+      - types-PyYAML==6.0.12.12
+      - types-tqdm==4.66.0.3
+
+      # Graph Visualization
+      - pygraphviz==1.11  # Requires graphviz system package
+      - plotly==5.17.0
+
+      # Provenance/Logic (for semiring implementations)
+      - pyro-ppl==1.8.6  # Probabilistic programming
+
+      # Documentation
+      - sphinx==7.2.6
+      - sphinx-rtd-theme==1.3.0
+      - myst-parser==2.0.0

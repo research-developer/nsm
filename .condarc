@@ -1,0 +1,28 @@
+# Conda configuration for NSM project
+# Place this in your home directory or use: conda config --file .condarc
+
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - pyg
+  - defaults
+
+channel_priority: flexible
+
+# Improve conda performance
+solver: libmamba
+
+# Environment settings
+auto_activate_base: false
+always_yes: false
+show_channel_urls: true
+
+# Package caching
+pkgs_dirs:
+  - ~/.conda/pkgs
+  - /tmp/conda-pkgs
+
+# Environment location (optional - can share across worktrees)
+envs_dirs:
+  - ~/.conda/envs

@@ -1,0 +1,82 @@
+# Neural Symbolic Model (NSM) - Python Requirements
+#
+# For conda installation, use environment.yml instead:
+#   conda env create -f environment.yml
+#
+# For pip-only installation:
+#   pip install -r requirements.txt
+#
+# Note: PyTorch Geometric extensions require specific CUDA versions.
+# This file assumes CUDA 11.8. Adjust URLs if using different CUDA version.
+
+# Core Deep Learning
+torch==2.1.0
+torchvision==0.16.0
+torchaudio==2.1.0
+
+# PyTorch Geometric (Graph Neural Networks)
+torch-geometric==2.4.0
+
+# PyG Extensions (CUDA 11.8 - adjust URL for your CUDA version)
+--find-links https://data.pyg.org/whl/torch-2.1.0+cu118.html
+torch-scatter==2.1.2+pt21cu118
+torch-sparse==0.6.18+pt21cu118
+torch-cluster==1.6.3+pt21cu118
+torch-spline-conv==1.2.2+pt21cu118
+
+# Scientific Computing
+numpy==1.24.3
+scipy==1.11.3
+pandas==2.1.1
+
+# Graph Processing
+networkx==3.1
+
+# Visualization
+matplotlib==3.8.0
+seaborn==0.12.2
+plotly==5.17.0
+
+# Experiment Tracking
+tensorboard==2.14.1
+wandb==0.15.12
+
+# Testing Framework
+pytest==7.4.2
+pytest-cov==4.1.0
+pytest-benchmark==4.0.0
+pytest-timeout==2.1.0
+coverage[toml]==7.3.2
+
+# Code Quality
+black==23.9.1
+isort==5.12.0
+flake8==6.1.0
+ruff==0.0.292
+pre-commit==3.4.0
+
+# Type Checking
+mypy==1.5.1
+types-PyYAML==6.0.12.12
+types-tqdm==4.66.0.3
+
+# Utilities
+pyyaml==6.0.1
+tqdm==4.66.1
+click==8.1.7
+
+# Jupyter (for experimentation and visualization)
+jupyter==1.0.0
+ipykernel==6.25.2
+notebook==7.0.4
+
+# Graph Visualization (requires system graphviz: brew install graphviz / apt-get install graphviz)
+pygraphviz==1.11
+
+# Probabilistic Programming (for provenance semirings)
+pyro-ppl==1.8.6
+
+# Documentation
+sphinx==7.2.6
+sphinx-rtd-theme==1.3.0
+myst-parser==2.0.0
