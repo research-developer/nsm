@@ -43,6 +43,7 @@ env/
 *.pt
 *.ckpt
 checkpoints/
+checkpoints/*/  # All subdirectories
 *.pkl
 
 # Jupyter
@@ -102,8 +103,15 @@ datasets/
 !configs/*.yaml
 !configs/*.yml
 
+# Domain-specific data (generated at runtime)
+data/causal/
+data/kg/
+data/planning/
+!data/*/.gitkeep
+
 # Results & Outputs
 results/
+results/*/  # All subdirectories
 outputs/
 figures/
 plots/
@@ -132,3 +140,14 @@ Desktop.ini
 
 # Keep empty directories
 !.gitkeep
+
+# Branch-specific summary documents (NSM-26)
+*_DATASET_SUMMARY.md
+*_SUMMARY.md
+*_ANALYSIS.md
+*_FINDINGS.md
+*_STATUS.md
+
+# Auto-generated scripts (NSM-26)
+experiments/run_*.sh
+experiments/training_log.jsonl
