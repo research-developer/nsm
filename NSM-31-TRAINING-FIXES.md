@@ -223,9 +223,76 @@ python experiments/train_kg.py \
 4. **Document findings** in NSM-10-CROSS-DOMAIN-COMPARISON.md
 5. **Only proceed to NSM-30** (3-level) after 2-level is solid
 
+## Preflight Checks
+
+To prevent NSM-31 issues from recurring, use the preflight check system:
+
+```python
+from nsm.evaluation import run_preflight_checks
+
+# Before training
+results = run_preflight_checks(
+    dataset=train_dataset,
+    model=model,
+    cycle_loss_weight=args.cycle_loss_weight,
+    learning_rate=args.lr,
+    class_weights=class_weights,  # Optional
+    strict=True  # Raise errors on failures
+)
+
+if results['all_passed']:
+    print("✅ All preflight checks passed!")
+    # Start training
+```
+
+**Checks Performed**:
+1. ✅ **Dataset Balance**: Verifies class distribution (prevents collapse)
+2. ✅ **Cycle Loss Weight**: Ensures ≤0.05 (prevents gradient dominance)
+3. ✅ **Learning Rate**: Ensures ≤5e-4 (prevents instability)
+4. ✅ **PyG Extensions**: Verifies SAGPooling works (WHY/WHAT operations)
+5. ✅ **Model Architecture**: Validates required components
+6. ✅ **Class Weights**: Recommends weights for imbalanced datasets
+
+**Example Output** (passing):
+```
+================================================================================
+🚀 Running NSM Preflight Checks (NSM-31)
+================================================================================
+
+🔍 Checking PyTorch Geometric extensions...
+  ✅ SAGPooling working (10 → 5 nodes)
+🔍 Checking cycle loss weight (0.01)...
+  ✅ Cycle loss weight is safe (0.01 ≤ 0.05)
+🔍 Checking learning rate (5.00e-04)...
+  ✅ Learning rate is safe (5.00e-04 ≤ 5.00e-04)
+🔍 Checking dataset class balance...
+  Total samples checked: 1000
+  Class distribution:
+    Class 0: 500 (50.0%)
+    Class 1: 500 (50.0%)
+  ✅ Dataset is well-balanced (minority: 50.0%)
+
+================================================================================
+✅ ALL PREFLIGHT CHECKS PASSED
+================================================================================
+```
+
+**Example Output** (failing):
+```
+🔍 Checking cycle loss weight (0.1)...
+
+PreflightCheckError: Cycle loss weight 0.1 is too high!
+NSM-31 analysis showed weight 0.1 caused:
+  - Cycle loss dominating task gradient (0.1 × 0.98 = 0.098)
+  - Class collapse (model always predicts one class)
+  - Poor accuracy (40-53% across all domains)
+Recommended: 0.05, Maximum safe: 0.1
+```
+
 ## References
 
 - NSM-20: Phase 1 Foundation Implementation
 - NSM-10: Dataset Exploration (Causal, KG, Planning)
 - NSM-30: 3-Level Architecture (blocked until this is resolved)
 - CLAUDE.md: Architecture principles and constraints
+- `nsm/evaluation/preflight_checks.py`: Automated validation system
