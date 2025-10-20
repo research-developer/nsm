@@ -372,8 +372,8 @@ class PlanningTripleDataset(BaseSemanticTripleDataset):
             cumulative_offset += problem['num_triples']
 
         # Use problem index to determine validity (deterministic)
-        # 85% valid sequences, 15% invalid
-        is_valid = (problem_idx % 100) < 85
+        # 50% valid sequences, 50% invalid (balanced for training)
+        is_valid = (problem_idx % 100) < 50
 
         return torch.tensor([1 if is_valid else 0], dtype=torch.long)
 
