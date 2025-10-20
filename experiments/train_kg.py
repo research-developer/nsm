@@ -105,7 +105,8 @@ def create_kg_model(
         num_classes=num_classes,
         num_bases=12,  # 81.8% parameter reduction
         pool_ratio=0.13,  # Weak hierarchy (preserve fine-grained facts)
-        task_type='link_prediction'
+        task_type='link_prediction',
+        num_levels=3  # Phase 1.5: 3-level hierarchy to break symmetry bias
     )
 
     return model.to(device)
