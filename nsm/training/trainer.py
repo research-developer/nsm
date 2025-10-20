@@ -119,8 +119,8 @@ class NSMTrainer:
         elif task_type == 'regression':
             return F.mse_loss(logits.squeeze(), labels.float())
         elif task_type == 'link_prediction':
-            # Binary classification for edge existence
-            return F.binary_cross_entropy_with_logits(logits.squeeze(), labels.float())
+            # Binary/multi-class classification for edge existence
+            return F.cross_entropy(logits, labels)
         else:
             raise ValueError(f"Unknown task_type: {task_type}")
 
