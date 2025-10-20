@@ -1,2 +1,134 @@
+# Claude Code
 .claude
+
+# Environment variables
 .env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+ENV/
+env/
+.venv
+
+# Conda
+.conda/
+*.conda
+
+# PyTorch
+*.pth
+*.pt
+*.ckpt
+checkpoints/
+*.pkl
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+!notebooks/*.ipynb  # Keep notebooks in notebooks/ directory
+
+# Experiment Tracking
+wandb/
+runs/
+logs/
+tensorboard/
+mlruns/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+*.cover
+*.py,cover
+.cache
+nosetests.xml
+coverage.xml
+*.coveragerc
+
+# Type Checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+docs/_build/
+docs/_static/
+docs/_templates/
+site/
+
+# Data (large datasets should not be committed)
+data/raw/
+data/processed/
+datasets/
+*.csv
+*.tsv
+*.json
+!configs/*.json
+!configs/*.yaml
+!configs/*.yml
+
+# Results & Outputs
+results/
+outputs/
+figures/
+plots/
+*.png
+*.jpg
+*.pdf
+!docs/figures/*  # Keep documentation figures
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Project-specific
+*.log
+
+# Git worktrees (don't track worktree metadata)
+.git/worktrees/
+
+# Keep empty directories
+!.gitkeep
