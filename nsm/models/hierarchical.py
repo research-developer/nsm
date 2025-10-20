@@ -427,10 +427,12 @@ class NSMModel(nn.Module):
                 nn.Linear(node_features // 2, 1)
             )
         elif task_type == 'link_prediction':
+            # Binary classification for edge existence
             self.predictor = nn.Sequential(
-                nn.Linear(node_features * 2, node_features),
+                nn.Linear(node_features, node_features // 2),
                 nn.ReLU(),
-                nn.Linear(node_features, 1)
+                nn.Dropout(0.1),
+                nn.Linear(node_features // 2, num_classes)
             )
         else:
             raise ValueError(f"Unknown task_type: {task_type}")
@@ -477,8 +479,18 @@ class NSMModel(nn.Module):
             logits = self.predictor(x_graph)
 
         elif self.task_type == 'link_prediction':
-            # Edge-level prediction (placeholder - needs edge pairs)
-            logits = None  # Requires specific edge pairs for prediction
+            # Graph-level binary prediction (edge exists/doesn't exist)
+            # Use same global pooling approach as classification
+            if batch is not None:
+                # Batch-wise global pooling
+                from torch_geometric.nn import global_mean_pool
+                batch_abstract = batch[result['perm']]
+                x_graph = global_mean_pool(x_abstract, batch_abstract)
+            else:
+                # Single graph: mean pooling
+                x_graph = x_abstract.mean(dim=0, keepdim=True)
+
+            logits = self.predictor(x_graph)
 
         result['logits'] = logits
 
