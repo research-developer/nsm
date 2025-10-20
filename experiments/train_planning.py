@@ -105,7 +105,8 @@ def create_planning_model(
         num_classes=num_classes,
         num_bases=8,  # 50% parameter reduction
         pool_ratio=0.5,  # Strong hierarchy (goals vs actions)
-        task_type='classification'
+        task_type='classification',
+        num_levels=3  # Phase 1.5: 3-level hierarchy to break symmetry bias
     )
 
     return model.to(device)
