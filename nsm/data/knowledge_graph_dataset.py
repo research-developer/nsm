@@ -597,10 +597,10 @@ class KnowledgeGraphTripleDataset(BaseSemanticTripleDataset):
 
         if idx < num_true_triples:
             # True triple (positive example)
-            return torch.tensor(1, dtype=torch.long)
+            return torch.tensor([1], dtype=torch.long)
         else:
             # Corrupted triple (negative example)
-            return torch.tensor(0, dtype=torch.long)
+            return torch.tensor([0], dtype=torch.long)
 
     def get_multi_hop_queries(self, num_queries: int = 100) -> List[Dict]:
         """
