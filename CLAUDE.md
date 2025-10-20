@@ -157,7 +157,88 @@ c_aggregate = softmax_weighted_sum([c₁, c₂, ..., cₙ], temperature=τ)
 
 ## Git Workflow & Parallel Exploration
 
-### Branching Strategy
+### Standard Development Workflow
+
+**IMPORTANT**: Always create a new branch for each Linear issue and submit a PR for review.
+
+#### For Regular Implementation Issues:
+
+```bash
+# 1. Fetch latest changes
+git checkout main
+git pull origin main
+
+# 2. Create feature branch (use Linear issue ID)
+git checkout -b nsm-XX-short-description
+
+# Example: For NSM-17 (R-GCN Message Passing)
+git checkout -b nsm-17-rgcn-message-passing
+
+# 3. Implement the feature with logical commits
+git add <files>
+git commit -m "Add R-GCN layer with basis decomposition
+
+- Implement ConfidenceWeightedRGCN class
+- Support typed edges for semantic predicates
+...
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+# 4. Push branch and create PR
+git push origin nsm-XX-short-description
+
+# 5. Create PR using GitHub CLI
+gh pr create --title "NSM-XX: Feature Name" \
+  --body "## Summary
+- Implementation details
+- Key design decisions
+- Integration points
+
+## Testing
+- Unit tests added
+- Integration tests passing
+
+## References
+- Implements NSM-XX
+- Related to NSM-YY
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+
+# 6. After PR approval and merge, delete local branch
+git checkout main
+git pull origin main
+git branch -d nsm-XX-short-description
+```
+
+#### Commit Message Guidelines:
+
+- **Format**: `<Type>: <Summary>` followed by detailed body
+- **Types**: Add, Update, Fix, Refactor, Test, Docs
+- **Summary**: Imperative mood, concise (<72 chars)
+- **Body**: Why (not what), design decisions, integration points
+- **Footer**: Always include Claude Code attribution
+
+**Example**:
+```
+Implement confidence propagation with product semiring
+
+Use provenance semiring (Scallop-style) for differentiable confidence:
+- Product for sequential reasoning (c₁ * c₂)
+- Softmax aggregation for alternative paths
+- Temperature annealing schedule
+
+Integration points:
+- Works with NSM-17 edge_attr
+- Ready for NSM-14 training loop
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
+
+### Branching Strategy for Parallel Exploration
 
 Phase 1 uses **parallel exploration via git worktrees** to empirically validate critical design decisions:
 
