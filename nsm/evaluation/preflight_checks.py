@@ -380,39 +380,47 @@ def run_preflight_checks(
     errors = []
     warnings_list = []
 
-    try:
-        # 1. Check PyG extensions (always required)
-        results['pyg'] = check_pyg_extensions()
+    # Capture warnings
+    import warnings as warnings_module
+    with warnings_module.catch_warnings(record=True) as w:
+        warnings_module.simplefilter("always")
 
-        # 2. Check cycle loss weight
-        results['cycle_loss'] = check_cycle_loss_weight(cycle_loss_weight)
+        try:
+            # 1. Check PyG extensions (always required)
+            results['pyg'] = check_pyg_extensions()
 
-        # 3. Check learning rate
-        results['learning_rate'] = check_learning_rate(learning_rate)
+            # 2. Check cycle loss weight
+            results['cycle_loss'] = check_cycle_loss_weight(cycle_loss_weight)
 
-        # 4. Check dataset balance (if provided)
-        if dataset is not None:
-            results['dataset_balance'] = check_dataset_balance(dataset)
+            # 3. Check learning rate
+            results['learning_rate'] = check_learning_rate(learning_rate)
 
-            # 5. Check class weights (requires dataset balance results)
-            results['class_weights'] = check_class_weights(
-                class_weights,
-                results['dataset_balance']
-            )
+            # 4. Check dataset balance (if provided)
+            if dataset is not None:
+                results['dataset_balance'] = check_dataset_balance(dataset)
 
-        # 6. Check model architecture (if provided)
-        if model is not None:
-            results['model'] = check_model_architecture(model)
+                # 5. Check class weights (requires dataset balance results)
+                results['class_weights'] = check_class_weights(
+                    class_weights,
+                    results['dataset_balance']
+                )
 
-    except PreflightCheckError as e:
-        errors.append(str(e))
-        if strict:
-            print("\n" + "="*80)
-            print("❌ PREFLIGHT CHECK FAILED")
-            print("="*80)
-            raise
-    except PreflightCheckWarning as w:
-        warnings_list.append(str(w))
+            # 6. Check model architecture (if provided)
+            if model is not None:
+                results['model'] = check_model_architecture(model)
+
+            # Collect warnings
+            for warning in w:
+                if issubclass(warning.category, PreflightCheckWarning):
+                    warnings_list.append(str(warning.message))
+
+        except PreflightCheckError as e:
+            errors.append(str(e))
+            if strict:
+                print("\n" + "="*80)
+                print("❌ PREFLIGHT CHECK FAILED")
+                print("="*80)
+                raise
 
     # Summary
     print("\n" + "="*80)
