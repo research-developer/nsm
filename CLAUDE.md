@@ -8,7 +8,7 @@ Neural Symbolic Model (NSM) is a neurosymbolic language model architecture using
 
 **Current Phase**: Phase 1 Foundation Implementation (2-level hierarchy proof-of-concept)
 
-**Linear Project**: [IMA-137](https://linear.app/imajn/issue/IMA-137) - Main implementation issue with centralized architectural blueprint in first comment
+**Linear Project**: [NSM-20](https://linear.app/imajn/issue/NSM-20) - Main implementation issue with centralized architectural blueprint in first comment
 
 ## Core Architecture
 
@@ -161,21 +161,21 @@ c_aggregate = softmax_weighted_sum([c₁, c₂, ..., cₙ], temperature=τ)
 
 Phase 1 uses **parallel exploration via git worktrees** to empirically validate critical design decisions:
 
-**Week 1-2**: Dataset Domain Exploration (IMA-146)
+**Week 1-2**: Dataset Domain Exploration (NSM-10)
 ```bash
 git worktree add ../nsm-planning dataset-planning
 git worktree add ../nsm-kg dataset-knowledge-graph
 git worktree add ../nsm-causal dataset-causal
 ```
 
-**Week 3**: Confidence Semantics Exploration (IMA-144)
+**Week 3**: Confidence Semantics Exploration (NSM-12)
 ```bash
 git worktree add ../nsm-product confidence-product-semiring
 git worktree add ../nsm-minmax confidence-minmax-semiring
 git worktree add ../nsm-learned confidence-learned-aggregation
 ```
 
-**Week 3-4**: Pooling Strategy Exploration (IMA-145, if needed)
+**Week 3-4**: Pooling Strategy Exploration (NSM-11, if needed)
 ```bash
 git worktree add ../nsm-sagpool pooling-sagpool
 git worktree add ../nsm-diffpool pooling-diffpool
@@ -202,18 +202,18 @@ python compare_results.py results/*.json
 
 ## Phase 1 Implementation Sequence
 
-Strict dependency chain (see [IMA-137](https://linear.app/imajn/issue/IMA-137)):
+Strict dependency chain (see [NSM-20](https://linear.app/imajn/issue/NSM-20)):
 
-1. **IMA-138**: PyG Environment & Data Structures (2-3d) ← START HERE
-2. **IMA-139**: R-GCN Message Passing (5-7d)
-3. **IMA-140**: Coupling Layers only (3-5d)
-4. **IMA-141**: Base Semiring Interfaces (4-6d)
-5. **IMA-146**: Dataset Exploration (3 branches, parallel)
-6. **IMA-144**: Confidence Exploration (3 branches, parallel)
-7. **IMA-145**: Pooling Exploration (3 branches, optional)
-8. **IMA-147**: Integration Issue (coupling + pooling winner)
-9. **IMA-142**: Training Loop (5-7d)
-10. **IMA-143**: Validation & Comparison (5-7d)
+1. **NSM-18**: PyG Environment & Data Structures (2-3d) ← START HERE
+2. **NSM-17**: R-GCN Message Passing (5-7d)
+3. **NSM-16**: Coupling Layers only (3-5d)
+4. **NSM-15**: Base Semiring Interfaces (4-6d)
+5. **NSM-10**: Dataset Exploration (3 branches, parallel)
+6. **NSM-12**: Confidence Exploration (3 branches, parallel)
+7. **NSM-11**: Pooling Exploration (3 branches, optional)
+8. **NSM-9**: Integration Issue (coupling + pooling winner)
+9. **NSM-14**: Training Loop (5-7d)
+10. **NSM-13**: Validation & Comparison (5-7d)
 
 **Total Timeline**: 4 weeks with empirical validation
 
@@ -261,7 +261,7 @@ Strict dependency chain (see [IMA-137](https://linear.app/imajn/issue/IMA-137)):
 
 ## Reference Implementations
 
-Key architectural patterns are documented in [IMA-137 main comment](https://linear.app/imajn/issue/IMA-137/nsm-phase-1-foundation-implementation-2-level-hierarchy-with-symmetric#comment-70ae40da):
+Key architectural patterns are documented in [NSM-20 main comment](https://linear.app/imajn/issue/NSM-20/nsm-phase-1-foundation-implementation-2-level-hierarchy-with-symmetric#comment-70ae40da):
 
 - ConfidenceWeightedRGCN with basis decomposition
 - SymmetricHierarchicalLayer (WHY/WHAT operations)
@@ -286,19 +286,19 @@ This implementation builds on validated research:
 
 ### Architecture Decisions Under Exploration
 
-- **Confidence semantics**: Product vs MinMax vs Learned (IMA-144)
-- **Pooling strategy**: SAGPool vs DiffPool vs Hybrid (IMA-145)
-- **Dataset domains**: Planning vs Knowledge Graph vs Causal (IMA-146)
+- **Confidence semantics**: Product vs MinMax vs Learned (NSM-12)
+- **Pooling strategy**: SAGPool vs DiffPool vs Hybrid (NSM-11)
+- **Dataset domains**: Planning vs Knowledge Graph vs Causal (NSM-10)
 
 **Do NOT commit to specific approaches until exploration branches evaluated.**
 
 ### When Working on Sub-Issues
 
-1. Always reference [IMA-137 main comment](https://linear.app/imajn/issue/IMA-137#comment-70ae40da) for architectural blueprint
+1. Always reference [NSM-20 main comment](https://linear.app/imajn/issue/NSM-20#comment-70ae40da) for architectural blueprint
 2. Check dependencies complete before starting
 3. Use identical test suite across exploration branches
 4. Document findings in `results/BRANCH_NAME_report.md`
-5. Update parent issue (IMA-137) when complete
+5. Update parent issue (NSM-20) when complete
 
 ### Testing Requirements
 
@@ -322,5 +322,26 @@ All new components must include:
 ## Additional Resources
 
 - **Linear Project**: [NSM Project](https://linear.app/imajn/project/neural-symbolic-model-nsm-hierarchical-semantic-reasoning-architecture-af57a8ece32c)
-- **Main Issue**: [IMA-137](https://linear.app/imajn/issue/IMA-137) with complete architectural blueprint
-- **Research Issues**: IMA-131 through IMA-136 (foundations)
+- **Main Issue**: [NSM-20](https://linear.app/imajn/issue/NSM-20) with complete architectural blueprint
+- **Research Issues**: NSM-2, NSM-3, NSM-4, NSM-5, NSM-6 (foundations)
+
+## Linear Issue Mapping
+
+For reference, the Linear issues were renumbered from IMA-* to NSM-* format:
+
+- **NSM-20** (was IMA-137): Phase 1 Foundation Implementation - Main Issue
+- **NSM-18** (was IMA-138): PyG Environment & Data Structures
+- **NSM-17** (was IMA-139): R-GCN Message Passing
+- **NSM-16** (was IMA-140): Coupling Layers
+- **NSM-15** (was IMA-141): Base Semiring Interfaces
+- **NSM-14** (was IMA-142): Training Loop
+- **NSM-13** (was IMA-143): Validation & Comparison
+- **NSM-12** (was IMA-144): Confidence Exploration
+- **NSM-11** (was IMA-145): Pooling Exploration
+- **NSM-10** (was IMA-146): Dataset Exploration
+- **NSM-9** (was IMA-147): Integration Issue
+- **NSM-6** (was IMA-131): Research - BDI-HTN-HRL Framework
+- **NSM-5** (was IMA-134): Research - Adjoint Functors
+- **NSM-4** (was IMA-133): Research - Provenance Semirings
+- **NSM-3** (was IMA-135): Research - PyG Architecture
+- **NSM-2** (was IMA-132): Research - Dilts Analysis
