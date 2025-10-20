@@ -263,13 +263,13 @@ class CausalTripleDataset(BaseSemanticTripleDataset):
         triples = []
 
         # Determine treatment effectiveness
-        # Base effectiveness: 0.7-0.9
-        base_effectiveness = 0.7 + random.random() * 0.2
+        # Base effectiveness: 0.2-0.9 (balanced distribution around threshold 0.6)
+        base_effectiveness = 0.2 + random.random() * 0.7
 
         # Confounder can increase or decrease effectiveness
         if confounder:
             confounder_effect = (random.random() - 0.5) * 0.4  # -0.2 to +0.2
-            observed_effectiveness = max(0.3, min(0.95,
+            observed_effectiveness = max(0.1, min(0.95,
                 base_effectiveness + confounder_effect))
         else:
             observed_effectiveness = base_effectiveness
