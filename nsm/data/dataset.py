@@ -125,7 +125,7 @@ class BaseSemanticTripleDataset(Dataset, ABC):
 
     def _load_from_cache(self, path: Path):
         """Load triples from cache file."""
-        data = torch.load(path)
+        data = torch.load(path, weights_only=False)
         self.triples = data['triples']
         if 'vocabulary' in data:
             self.vocabulary = data['vocabulary']
