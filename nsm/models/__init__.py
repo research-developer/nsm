@@ -10,6 +10,14 @@ from .coupling import (
     MultiLayerCoupling,
     GraphCouplingLayer
 )
+from .pooling import (
+    SymmetricGraphPooling,
+    AdaptiveUnpooling
+)
+from .hierarchical import (
+    SymmetricHierarchicalLayer,
+    NSMModel
+)
 
 __all__ = [
     'ConfidenceWeightedRGCN',
@@ -18,4 +26,8 @@ __all__ = [
     'AffineCouplingLayer',
     'MultiLayerCoupling',
     'GraphCouplingLayer',
+    'SymmetricGraphPooling',
+    'AdaptiveUnpooling',
+    'SymmetricHierarchicalLayer',
+    'NSMModel',
 ]
