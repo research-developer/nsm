@@ -1,10 +1,24 @@
 """
-Evaluation Metrics for NSM
+NSM evaluation and validation modules.
 
-Domain-specific metrics for planning, knowledge graphs, and causal reasoning.
+Provides metrics, preflight checks, and domain-specific evaluation utilities.
 """
 
-from .planning_metrics import (
+# Preflight checks (from main branch)
+from nsm.evaluation.preflight_checks import (
+    run_preflight_checks,
+    check_dataset_balance,
+    check_cycle_loss_weight,
+    check_learning_rate,
+    check_pyg_extensions,
+    check_model_architecture,
+    check_class_weights,
+    PreflightCheckError,
+    PreflightCheckWarning
+)
+
+# Planning-specific metrics (from dataset-planning branch)
+from nsm.evaluation.planning_metrics import (
     PlanningMetrics,
     goal_achievement_rate,
     invalid_sequence_detection,
@@ -14,6 +28,17 @@ from .planning_metrics import (
 )
 
 __all__ = [
+    # Preflight checks
+    'run_preflight_checks',
+    'check_dataset_balance',
+    'check_cycle_loss_weight',
+    'check_learning_rate',
+    'check_pyg_extensions',
+    'check_model_architecture',
+    'check_class_weights',
+    'PreflightCheckError',
+    'PreflightCheckWarning',
+    # Planning metrics
     'PlanningMetrics',
     'goal_achievement_rate',
     'invalid_sequence_detection',
