@@ -120,7 +120,8 @@ def collate_fn(batch_list):
 
     # Batch PyG Data objects
     data_list = [item[0] for item in batch_list]
-    labels = torch.tensor([item[1] for item in batch_list])
+    # Labels are already binary (0 or 1) from generate_labels()
+    labels = torch.tensor([item[1].item() for item in batch_list], dtype=torch.long)
 
     batched_data = Batch.from_data_list(data_list)
 
