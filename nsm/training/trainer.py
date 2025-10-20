@@ -66,7 +66,8 @@ class NSMTrainer:
         checkpoint_dir: str = 'checkpoints',
         log_interval: int = 10,
         use_wandb: bool = False,
-        use_tensorboard: bool = False
+        use_tensorboard: bool = False,
+        class_weights: Optional[torch.Tensor] = None
     ):
         self.model = model.to(device)
         self.optimizer = optimizer
@@ -77,6 +78,11 @@ class NSMTrainer:
         self.checkpoint_dir = Path(checkpoint_dir)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.log_interval = log_interval
+
+        # Class weights for balanced loss (anti-collapse)
+        self.class_weights = class_weights
+        if class_weights is not None:
+            self.class_weights = class_weights.to(device)
 
         # Logging
         self.use_wandb = use_wandb
@@ -115,12 +121,12 @@ class NSMTrainer:
         logits = output['logits']
 
         if task_type == 'classification':
-            return F.cross_entropy(logits, labels)
+            return F.cross_entropy(logits, labels, weight=self.class_weights)
         elif task_type == 'regression':
             return F.mse_loss(logits.squeeze(), labels.float())
         elif task_type == 'link_prediction':
             # Binary/multi-class classification for edge existence
-            return F.cross_entropy(logits, labels)
+            return F.cross_entropy(logits, labels, weight=self.class_weights)
         else:
             raise ValueError(f"Unknown task_type: {task_type}")
 
