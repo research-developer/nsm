@@ -50,6 +50,7 @@ def validate_attention():
     import torch
     import torch.nn.functional as F
     from torch_geometric.loader import DataLoader
+    from torch_geometric.data import Batch
     from datetime import datetime
     from tqdm import tqdm
 
@@ -103,8 +104,12 @@ def validate_attention():
     train_dataset = IndexedDataset(full_dataset, train_indices)
     val_dataset = IndexedDataset(full_dataset, val_indices)
 
-    train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False)
+    # Use Batch.from_data_list as collate_fn for proper PyG batching
+    def pyg_collate(data_list):
+        return Batch.from_data_list(data_list)
+
+    train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, collate_fn=pyg_collate)
+    val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False, collate_fn=pyg_collate)
 
     print(f"Train samples: {len(train_dataset)}")
     print(f"Val samples: {len(val_dataset)}")
