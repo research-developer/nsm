@@ -21,9 +21,9 @@ PROJECT_ROOT = Path(__file__).parent.parent.absolute()
 image = (
     modal.Image.debian_slim(python_version="3.10")
     .pip_install(
+        "numpy<2",  # Pin to NumPy 1.x for torch-scatter compatibility
         "torch==2.1.0",
         "torch-geometric==2.4.0",
-        "numpy",
         "tqdm",
     )
     .run_commands(
@@ -57,7 +57,7 @@ def validate_attention():
     sys.path.insert(0, "/root/NSM")
 
     from nsm.models.chiral import MinimalChiralModel
-    from nsm.data.planning_dataset import PlanningDataset
+    from nsm.data.planning_dataset import PlanningTripleDataset
 
     print("="*60)
     print("CHIRAL ARCHITECTURE VALIDATION - ATTENTION VARIANT")
@@ -81,7 +81,7 @@ def validate_attention():
 
     # Load dataset
     print("\nLoading Planning dataset...")
-    dataset = PlanningDataset(root="/tmp/planning", split="train")
+    dataset = PlanningTripleDataset(root="/tmp/planning", split="train")
 
     # Split into train/val
     train_size = 2000
