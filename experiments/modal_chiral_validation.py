@@ -82,7 +82,9 @@ def validate_attention():
 
     # Load dataset
     print("\nLoading Planning dataset...")
-    dataset = PlanningTripleDataset(root="/tmp/planning", split="train")
+    # Use num_problems=4100 so that train split (70%) gives us ~2870 samples
+    # We'll then take first 2000 for train, rest for val
+    dataset = PlanningTripleDataset(root="/tmp/planning", split="train", num_problems=4100)
 
     # Split into train/val using Subset
     train_size = 2000
