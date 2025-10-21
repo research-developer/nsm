@@ -50,7 +50,6 @@ def validate_attention():
     import torch
     import torch.nn.functional as F
     from torch_geometric.loader import DataLoader
-    from torch.utils.data import Subset
     from datetime import datetime
     from tqdm import tqdm
 
@@ -93,8 +92,10 @@ def validate_attention():
     train_indices = list(range(train_size))
     val_indices = list(range(train_size, len(dataset)))
 
-    train_dataset = Subset(dataset, train_indices)
-    val_dataset = Subset(dataset, val_indices)
+    # Don't use Subset - instead slice the dataset directly
+    # PyG datasets support slicing and maintain proper batching
+    train_dataset = [dataset[i] for i in train_indices]
+    val_dataset = [dataset[i] for i in val_indices]
 
     train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False)
