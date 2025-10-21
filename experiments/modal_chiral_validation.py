@@ -49,7 +49,7 @@ def validate_attention():
     import json
     import torch
     import torch.nn.functional as F
-    from torch_geometric.loader import DataLoader
+    from torch.utils.data import DataLoader  # Use torch DataLoader explicitly
     from torch_geometric.data import Batch
     from datetime import datetime
     from tqdm import tqdm
@@ -86,7 +86,9 @@ def validate_attention():
     full_dataset = PlanningTripleDataset(root="/tmp/planning", split="train", num_problems=4100)
 
     # Materialize all graphs into a list
+    print(f"Total dataset size: {len(full_dataset)}")
     all_graphs = [full_dataset[i] for i in range(len(full_dataset))]
+    print(f"Materialized {len(all_graphs)} graphs")
 
     # Split into train/val
     train_size = 2000
@@ -95,16 +97,20 @@ def validate_attention():
 
     # Create DataLoaders with explicit collate function
     def pyg_collate(data_list):
-        return Batch.from_data_list(data_list)
-
-    train_loader = DataLoader(train_graphs, batch_size=config["batch_size"], shuffle=True, collate_fn=pyg_collate)
-    val_loader = DataLoader(val_graphs, batch_size=config["batch_size"], shuffle=False, collate_fn=pyg_collate)
+        batch = Batch.from_data_list(data_list)
+        print(f"Collate called with {len(data_list)} graphs, created batch with {batch.num_graphs} graphs")
+        return batch
 
     print(f"Train samples: {len(train_graphs)}")
     print(f"Val samples: {len(val_graphs)}")
 
+    train_loader = DataLoader(train_graphs, batch_size=config["batch_size"], shuffle=True, collate_fn=pyg_collate)
+    val_loader = DataLoader(val_graphs, batch_size=config["batch_size"], shuffle=False, collate_fn=pyg_collate)
+
     # Get data properties from first batch
+    print("Fetching first batch...")
     sample = next(iter(train_loader))
+    print(f"Sample type: {type(sample)}")
     node_features = sample.x.size(1)
     num_relations = int(sample.edge_type.max().item()) + 1
     num_classes = 2
