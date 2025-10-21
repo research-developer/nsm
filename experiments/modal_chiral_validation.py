@@ -97,8 +97,13 @@ def validate_attention():
 
     # Create DataLoaders with explicit collate function
     def pyg_collate(data_list):
-        batch = Batch.from_data_list(data_list)
-        print(f"Collate called with {len(data_list)} graphs, created batch with {batch.num_graphs} graphs")
+        # data_list is a list of tuples (graph, label)
+        graphs = [item[0] for item in data_list]
+        labels = torch.tensor([item[1] for item in data_list])
+        batch = Batch.from_data_list(graphs)
+        # Add labels to the batch
+        batch.y = labels
+        print(f"Collate called with {len(graphs)} graphs, created batch with {batch.num_graphs} graphs")
         return batch
 
     print(f"Train samples: {len(train_graphs)}")
