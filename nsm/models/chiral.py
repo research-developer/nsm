@@ -19,54 +19,53 @@ References:
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from typing import Optional, Tuple, Dict
 from torch_geometric.nn import global_mean_pool
+
+from .rgcn import ConfidenceWeightedRGCN
+from .pooling import SymmetricGraphPooling
 
 
 class ChiralHingeExchange(nn.Module):
     """
-    Bidirectional exchange mechanism at hinge points.
+    Bidirectional exchange mechanism using simple weighted fusion.
 
     Allows upper (bottom-up) and lower (top-down) flows to exchange
-    information via cross-attention, forcing diversity while maintaining
-    complementary perspectives.
+    information via learnable weighted combination. This is the simplest
+    baseline approach for hinge exchange.
+
+    Mechanism:
+        x_upper_refined = alpha * x_upper + (1 - alpha) * transform(x_lower)
+        x_lower_refined = beta * x_lower + (1 - beta) * transform(x_upper)
 
     Args:
         dim: Hidden dimension
-        num_heads: Number of attention heads (default: 8)
         dropout: Dropout rate (default: 0.1)
     """
 
     def __init__(
         self,
         dim: int,
-        num_heads: int = 8,
         dropout: float = 0.1
     ):
         super().__init__()
         self.dim = dim
-        self.num_heads = num_heads
 
-        # Cross-attention: upper queries lower's knowledge
-        self.upper_to_lower_attn = nn.MultiheadAttention(
-            dim, num_heads, dropout=dropout, batch_first=True
-        )
+        # Learnable mixing weights (per-dimension)
+        self.alpha = nn.Parameter(torch.ones(1, dim) * 0.5)  # Initialize to 0.5
+        self.beta = nn.Parameter(torch.ones(1, dim) * 0.5)
 
-        # Cross-attention: lower queries upper's knowledge
-        self.lower_to_upper_attn = nn.MultiheadAttention(
-            dim, num_heads, dropout=dropout, batch_first=True
-        )
-
-        # Fusion layers to combine original + exchanged
-        self.fusion_upper = nn.Sequential(
-            nn.Linear(dim * 2, dim),
+        # Transform layers (project other flow before mixing)
+        self.transform_lower_for_upper = nn.Sequential(
+            nn.Linear(dim, dim),
             nn.LayerNorm(dim),
             nn.GELU(),
             nn.Dropout(dropout)
         )
 
-        self.fusion_lower = nn.Sequential(
-            nn.Linear(dim * 2, dim),
+        self.transform_upper_for_lower = nn.Sequential(
+            nn.Linear(dim, dim),
             nn.LayerNorm(dim),
             nn.GELU(),
             nn.Dropout(dropout)
@@ -78,60 +77,37 @@ class ChiralHingeExchange(nn.Module):
         x_lower: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Bidirectional exchange at hinge.
+        Bidirectional weighted fusion at hinge.
 
         Args:
-            x_upper: Upper flow representation [batch, seq_len, dim] or [num_nodes, dim]
-            x_lower: Lower flow representation [batch, seq_len, dim] or [num_nodes, dim]
+            x_upper: Upper flow representation [num_nodes, dim]
+            x_lower: Lower flow representation [num_nodes, dim]
 
         Returns:
-            (x_upper_refined, x_lower_refined): Exchanged and fused representations
+            (x_upper_refined, x_lower_refined): Fused representations
         """
-        # Ensure 3D for attention (batch_first=True)
-        if x_upper.dim() == 2:
-            x_upper = x_upper.unsqueeze(0)  # [1, num_nodes, dim]
-        if x_lower.dim() == 2:
-            x_lower = x_lower.unsqueeze(0)  # [1, num_nodes, dim]
+        # Transform flows for cross-pollination
+        lower_transformed = self.transform_lower_for_upper(x_lower)
+        upper_transformed = self.transform_upper_for_lower(x_upper)
 
-        # Cross-attention: upper queries lower
-        upper_from_lower, _ = self.upper_to_lower_attn(
-            query=x_upper,
-            key=x_lower,
-            value=x_lower
-        )
+        # Weighted fusion with learnable mixing coefficients
+        # Constrain alpha and beta to [0, 1] via sigmoid
+        alpha = torch.sigmoid(self.alpha)
+        beta = torch.sigmoid(self.beta)
 
-        # Cross-attention: lower queries upper
-        lower_from_upper, _ = self.lower_to_upper_attn(
-            query=x_lower,
-            key=x_upper,
-            value=x_upper
-        )
-
-        # Fuse with residuals
-        x_upper_refined = self.fusion_upper(
-            torch.cat([x_upper, upper_from_lower], dim=-1)
-        )
-
-        x_lower_refined = self.fusion_lower(
-            torch.cat([x_lower, lower_from_upper], dim=-1)
-        )
-
-        # Remove batch dimension if input was 2D
-        if x_upper_refined.size(0) == 1:
-            x_upper_refined = x_upper_refined.squeeze(0)
-        if x_lower_refined.size(0) == 1:
-            x_lower_refined = x_lower_refined.squeeze(0)
+        x_upper_refined = alpha * x_upper + (1 - alpha) * lower_transformed
+        x_lower_refined = beta * x_lower + (1 - beta) * upper_transformed
 
         return x_upper_refined, x_lower_refined
 
 
 class MinimalChiralModel(nn.Module):
     """
-    Minimal 3-level chiral architecture (NSM-31 Stage 1).
+    Minimal 3-level chiral architecture with fusion-based hinge exchange.
 
     Architecture:
         Upper Flow (WHY):  L1 → L2_up
-                                  ↕ (HINGE EXCHANGE)
+                                  ↕ (HINGE EXCHANGE via weighted fusion)
         Lower Flow (WHAT): L3 → L2_down
 
         Prediction: From L2_chiral = hinge_exchange(L2_up, L2_down)
@@ -143,6 +119,8 @@ class MinimalChiralModel(nn.Module):
         node_features: Input node feature dimension
         num_relations: Number of relation types
         num_classes: Number of output classes
+        num_bases: Number of basis matrices for R-GCN (default: num_relations // 4)
+        pool_ratio: Fraction of nodes to keep when pooling (default: 0.5)
         task_type: 'classification' or 'regression'
     """
 
@@ -151,6 +129,8 @@ class MinimalChiralModel(nn.Module):
         node_features: int,
         num_relations: int,
         num_classes: int,
+        num_bases: Optional[int] = None,
+        pool_ratio: float = 0.5,
         task_type: str = 'classification'
     ):
         super().__init__()
@@ -158,13 +138,51 @@ class MinimalChiralModel(nn.Module):
         self.num_relations = num_relations
         self.num_classes = num_classes
         self.task_type = task_type
+        self.pool_ratio = pool_ratio
 
-        # TODO: Implement upper flow (L1 → L2_up)
-        # TODO: Implement lower flow (L3 → L2_down)
-        # TODO: Implement hinge exchange
-        # TODO: Implement prediction head
+        if num_bases is None:
+            num_bases = max(1, num_relations // 4)
 
-        raise NotImplementedError("MinimalChiralModel needs implementation")
+        # Upper flow: L1 → L2_up (bottom-up, WHY operation)
+        self.rgcn_l1 = ConfidenceWeightedRGCN(
+            in_channels=node_features,
+            out_channels=node_features,
+            num_relations=num_relations,
+            num_bases=num_bases
+        )
+        self.pool_l1_to_l2 = SymmetricGraphPooling(
+            in_channels=node_features,
+            ratio=pool_ratio
+        )
+
+        # Lower flow: L3 → L2_down (top-down, WHAT operation)
+        # L3 starts as a learned embedding (abstract "mission/capability" prior)
+        self.l3_prior = nn.Parameter(torch.randn(1, node_features))
+        self.unpool_l3_to_l2 = nn.Linear(node_features, node_features)
+
+        # Hinge exchange at L2 (fusion-based)
+        self.hinge_l2 = ChiralHingeExchange(
+            dim=node_features,
+            dropout=0.1
+        )
+
+        # Prediction head from L2_chiral
+        if task_type == 'classification':
+            self.predictor = nn.Sequential(
+                nn.Linear(node_features, node_features // 2),
+                nn.ReLU(),
+                nn.Dropout(0.1),
+                nn.Linear(node_features // 2, num_classes)
+            )
+        else:
+            self.predictor = nn.Sequential(
+                nn.Linear(node_features, node_features // 2),
+                nn.ReLU(),
+                nn.Linear(node_features // 2, 1)
+            )
+
+        # Cycle reconstruction head (for cycle loss)
+        self.reconstruct_l1 = nn.Linear(node_features, node_features)
 
     def forward(
         self,
@@ -174,7 +192,7 @@ class MinimalChiralModel(nn.Module):
         batch: Optional[torch.Tensor] = None
     ) -> Dict[str, torch.Tensor]:
         """
-        Forward pass with simultaneous bidirectional flows.
+        Forward pass with simultaneous bidirectional flows and L2 exchange.
 
         Args:
             x: Node features [num_nodes, node_features]
@@ -188,9 +206,62 @@ class MinimalChiralModel(nn.Module):
                 'x_l2_up': Upper flow L2 representation
                 'x_l2_down': Lower flow L2 representation
                 'x_l2_chiral': Exchanged L2 representation
+                'cycle_loss': Reconstruction error
+                'perm_l2': Pooling permutation indices
         """
-        # TODO: Implement forward pass
-        raise NotImplementedError("MinimalChiralModel.forward needs implementation")
+        num_nodes = x.size(0)
+
+        # Default batch if not provided
+        if batch is None:
+            batch = torch.zeros(num_nodes, dtype=torch.long, device=x.device)
+
+        # ===== UPPER FLOW: L1 → L2_up (WHY operation) =====
+        # Message passing at L1
+        x_l1 = self.rgcn_l1(x, edge_index, edge_type)
+
+        # Pool to L2 (abstraction)
+        x_l2_up, edge_index_l2, _, batch_l2, perm_l2, score_l2 = self.pool_l1_to_l2.why_operation(
+            x_l1, edge_index, edge_attr=None, batch=batch
+        )
+
+        # ===== LOWER FLOW: L3 → L2_down (WHAT operation) =====
+        # Start with L3 prior (broadcast to match L2 size)
+        num_l2_nodes = x_l2_up.size(0)
+        x_l3 = self.l3_prior.expand(num_l2_nodes, -1)  # [num_l2_nodes, node_features]
+
+        # "Unpool" from L3 to L2 (concretization via linear transform)
+        x_l2_down = self.unpool_l3_to_l2(x_l3)
+
+        # ===== HINGE EXCHANGE AT L2 (CHIRAL INTERACTION) =====
+        x_l2_up_refined, x_l2_down_refined = self.hinge_l2(x_l2_up, x_l2_down)
+
+        # Fuse upper and lower for final L2 representation
+        x_l2_chiral = (x_l2_up_refined + x_l2_down_refined) / 2
+
+        # ===== PREDICTION FROM L2_CHIRAL =====
+        # Global pooling to graph-level representation
+        x_graph = global_mean_pool(x_l2_chiral, batch_l2)
+
+        logits = self.predictor(x_graph)
+
+        # ===== CYCLE CONSISTENCY (for training stability) =====
+        # Reconstruct L1 from L2_chiral to ensure information preservation
+        # Unpool L2 back to L1 size
+        x_l1_reconstructed = torch.zeros_like(x_l1)
+        x_l1_reconstructed[perm_l2] = self.reconstruct_l1(x_l2_chiral)
+
+        cycle_loss = F.mse_loss(x_l1_reconstructed, x_l1)
+
+        return {
+            'logits': logits,
+            'x_l2_up': x_l2_up,
+            'x_l2_down': x_l2_down,
+            'x_l2_chiral': x_l2_chiral,
+            'x_l1_reconstructed': x_l1_reconstructed,
+            'cycle_loss': cycle_loss,
+            'perm_l2': perm_l2,
+            'score_l2': score_l2
+        }
 
 
 class FullChiralModel(nn.Module):
