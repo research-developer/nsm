@@ -254,8 +254,8 @@ class MinimalChiralModel(nn.Module):
         x_l1 = self.rgcn_l1(x, edge_index, edge_type)
 
         # Pool to L2 (abstraction)
-        x_l2_up, edge_index_l2, _, batch_l2, perm_l2, score_l2 = self.pool_l1_to_l2(
-            x_l1, edge_index, batch=batch
+        x_l2_up, edge_index_l2, _, batch_l2, perm_l2, score_l2 = self.pool_l1_to_l2.why_operation(
+            x_l1, edge_index, edge_attr=None, batch=batch
         )
 
         # ===== LOWER FLOW: L3 → L2_down (WHAT operation) =====
