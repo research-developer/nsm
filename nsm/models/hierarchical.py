@@ -32,6 +32,7 @@ from .coupling import AffineCouplingLayer, MultiLayerCoupling
 from .pooling import SymmetricGraphPooling
 from .confidence.base import BaseSemiring
 from .confidence.examples import ProductSemiring
+from .confidence.trifold import TriFoldReasoner, TRIFOLD_CHANNELS
 
 
 class SymmetricHierarchicalLayer(nn.Module):
@@ -46,6 +47,7 @@ class SymmetricHierarchicalLayer(nn.Module):
     - Coupling layers for invertible transformations
     - Graph pooling for hierarchical coarsening
     - Semiring for confidence propagation
+    - Tri-fold semantic head for recursive subject-predicate-object reasoning
 
     Args:
         node_features (int): Node feature dimensionality
@@ -56,6 +58,12 @@ class SymmetricHierarchicalLayer(nn.Module):
         hidden_dim (int): Hidden dimension for coupling/R-GCN
         semiring (BaseSemiring, optional): Confidence propagation semiring
         dropout (float): Dropout rate for regularization
+        tri_semantics (bool): Enable tri-fold semantic triple head
+        tri_hidden_dim (int, optional): Hidden dimension for tri-fold projector
+        tri_iterations (int): Number of fold/unfold refinement steps
+        tri_fold_reduction (str): Reduction used by fold operator ('min', 'mean', 'logsumexp')
+        tri_alpha (float): Scaling factor for fold accumulation
+        tri_beta (float): Scaling factor for unfold broadcasting
 
     Example:
         >>> layer = SymmetricHierarchicalLayer(
@@ -88,7 +96,13 @@ class SymmetricHierarchicalLayer(nn.Module):
         coupling_layers: int = 3,
         hidden_dim: int = 128,
         semiring: Optional[BaseSemiring] = None,
-        dropout: float = 0.1
+        dropout: float = 0.1,
+        tri_semantics: bool = True,
+        tri_hidden_dim: Optional[int] = None,
+        tri_iterations: int = 2,
+        tri_fold_reduction: str = 'min',
+        tri_alpha: float = 1.0,
+        tri_beta: float = 0.2,
     ):
         super().__init__()
 
@@ -149,6 +163,27 @@ class SymmetricHierarchicalLayer(nn.Module):
         # Dropout for regularization
         self.dropout = nn.Dropout(dropout)
 
+        # Tri-fold semantics head
+        self.enable_trifold = tri_semantics
+        self.trifold_iterations = tri_iterations
+        if self.enable_trifold:
+            hidden = tri_hidden_dim or node_features
+            projector_layers = [
+                nn.Linear(node_features, hidden),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden, TRIFOLD_CHANNELS),
+            ]
+            self.trifold_projector = nn.Sequential(*projector_layers)
+            self.trifold_reasoner = TriFoldReasoner(
+                alpha=tri_alpha,
+                beta=tri_beta,
+                reduction=tri_fold_reduction,
+            )
+        else:
+            self.trifold_projector = None
+            self.trifold_reasoner = None
+
         # Layer normalization for stability
         self.norm_l1 = nn.LayerNorm(node_features)
         self.norm_l2 = nn.LayerNorm(node_features)
@@ -160,7 +195,7 @@ class SymmetricHierarchicalLayer(nn.Module):
         edge_type: Tensor,
         edge_attr: Optional[Tensor] = None,
         batch: Optional[Tensor] = None
-    ) -> Tuple[Tensor, Tensor, Optional[Tensor], Tensor, Tensor]:
+    ) -> Tuple[Tensor, Tensor, Optional[Tensor], Optional[Tensor], Tensor, Tensor]:
         """WHY operation: Abstract from concrete (L1) to abstract (L2).
 
         Steps:
@@ -181,6 +216,7 @@ class SymmetricHierarchicalLayer(nn.Module):
             - x_abstract (Tensor): Abstract node features [num_pooled, node_features]
             - edge_index_abstract (Tensor): Abstract edge index [2, num_pooled_edges]
             - edge_attr_abstract (Tensor, optional): Abstract edge attributes
+            - batch_abstract (Tensor, optional): Abstract batch assignments
             - perm (Tensor): Pooling indices
             - score (Tensor): Node selection scores
         """
@@ -216,7 +252,14 @@ class SymmetricHierarchicalLayer(nn.Module):
             x_abstract = self.norm_l2(x_abstract)
             x_abstract = F.relu(x_abstract)
 
-        return x_abstract, edge_index_abstract, edge_attr_abstract, perm, score
+        return (
+            x_abstract,
+            edge_index_abstract,
+            edge_attr_abstract,
+            batch_abstract,
+            perm,
+            score,
+        )
 
     def what_operation(
         self,
@@ -277,22 +320,50 @@ class SymmetricHierarchicalLayer(nn.Module):
             - x_abstract: Abstract representations
             - x_reconstructed: Reconstructed concrete features (if return_cycle_loss)
             - cycle_loss: Reconstruction error (if return_cycle_loss)
+            - batch_abstract: Batch assignments for abstract nodes
             - perm: Pooling indices
             - score: Node selection scores
+            - tri_fold_states: Per-node tri-fold states (if enabled)
+            - tri_fold_summary: Aggregated tri-fold summary per graph (if enabled)
+            - tri_fold_center: Nexus coherence scores (if enabled)
+            - tri_fold_loops: Aggregated loop scores (if enabled)
+            - tri_fold_history: Fold operator values per iteration (if enabled)
         """
         original_num_nodes = x.size(0)
 
         # WHY operation
-        x_abstract, edge_index_abstract, edge_attr_abstract, perm, score = \
-            self.why_operation(x, edge_index, edge_type, edge_attr, batch)
+        (
+            x_abstract,
+            edge_index_abstract,
+            edge_attr_abstract,
+            batch_abstract,
+            perm,
+            score,
+        ) = self.why_operation(x, edge_index, edge_type, edge_attr, batch)
 
         result = {
             'x_abstract': x_abstract,
             'edge_index_abstract': edge_index_abstract,
             'edge_attr_abstract': edge_attr_abstract,
+            'batch_abstract': batch_abstract,
             'perm': perm,
             'score': score
         }
+
+        if self.enable_trifold:
+            tri_input = self.trifold_projector(x_abstract)
+            tri_result = self.trifold_reasoner(
+                tri_input,
+                batch=batch_abstract,
+                iterations=self.trifold_iterations,
+            )
+            result.update({
+                'tri_fold_states': tri_result.states,
+                'tri_fold_summary': tri_result.aggregated,
+                'tri_fold_center': tri_result.center,
+                'tri_fold_loops': tri_result.loops,
+                'tri_fold_history': tri_result.fold_history,
+            })
 
         if return_cycle_loss:
             # WHAT operation
@@ -350,7 +421,9 @@ class SymmetricHierarchicalLayer(nn.Module):
                 f'  num_relations={self.num_relations},\n'
                 f'  num_bases={self.num_bases},\n'
                 f'  pool_ratio={self.pool_ratio:.2f},\n'
-                f'  semiring={self.semiring.get_name()}\n'
+                f'  semiring={self.semiring.get_name()},\n'
+                f'  tri_semantics={self.enable_trifold},\n'
+                f'  tri_iterations={self.trifold_iterations}\n'
                 f')')
 
 
@@ -470,7 +543,9 @@ class NSMModel(nn.Module):
             if batch is not None:
                 # Batch-wise global pooling
                 from torch_geometric.nn import global_mean_pool
-                batch_abstract = batch[result['perm']]
+                batch_abstract = result.get('batch_abstract')
+                if batch_abstract is None and result.get('perm') is not None:
+                    batch_abstract = batch[result['perm']]
                 x_graph = global_mean_pool(x_abstract, batch_abstract)
             else:
                 # Single graph: mean pooling
@@ -484,7 +559,9 @@ class NSMModel(nn.Module):
             if batch is not None:
                 # Batch-wise global pooling
                 from torch_geometric.nn import global_mean_pool
-                batch_abstract = batch[result['perm']]
+                batch_abstract = result.get('batch_abstract')
+                if batch_abstract is None and result.get('perm') is not None:
+                    batch_abstract = batch[result['perm']]
                 x_graph = global_mean_pool(x_abstract, batch_abstract)
             else:
                 # Single graph: mean pooling
