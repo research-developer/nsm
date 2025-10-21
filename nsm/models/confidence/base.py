@@ -237,7 +237,11 @@ def verify_semiring_properties(
     try:
         # Test 2: Identity element (typically 1.0)
         a = test_values[0]
-        identity = torch.tensor(1.0)
+        identity_fn = getattr(semiring, "get_combine_identity", None)
+        if callable(identity_fn):
+            identity = identity_fn(a)
+        else:
+            identity = torch.ones_like(a)
         combined = semiring.combine(torch.stack([a, identity]))
         results['combine_identity'] = torch.allclose(combined, a, atol=atol)
 
