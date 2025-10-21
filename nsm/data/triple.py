@@ -7,7 +7,7 @@ hierarchical level information.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Sequence, Tuple, Union
 import torch
 from torch import Tensor
 
@@ -25,7 +25,8 @@ class SemanticTriple:
         subject: The subject entity (string identifier or index)
         predicate: The relationship type (string identifier or index)
         object: The object entity (string identifier or index)
-        confidence: Learnable confidence score in [0, 1], default 1.0
+        confidence: Learnable confidence score. Accepts scalar in [0, 1]
+                    or length-4 log-score tensor/list.
         level: Hierarchical level (1=concrete, 2=abstract for Phase 1)
         metadata: Additional information (provenance, timestamp, etc.)
 
@@ -61,17 +62,15 @@ class SemanticTriple:
     subject: Union[str, int]
     predicate: Union[str, int]
     object: Union[str, int]
-    confidence: float = 1.0
+    confidence: Union[float, Sequence[float], Tensor] = 1.0
     level: int = 1
     metadata: Dict[str, Any] = field(default_factory=dict)
+    _confidence_tensor: Tensor = field(init=False, repr=False, compare=False)
+    _confidence_is_scalar: bool = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
         """Validate triple attributes after initialization."""
-        # Validate confidence in [0, 1]
-        if not 0.0 <= self.confidence <= 1.0:
-            raise ValueError(
-                f"Confidence must be in [0, 1], got {self.confidence}"
-            )
+        self._set_confidence(self.confidence)
 
         # Validate level (Phase 1: 1-2, Phase 2+: 1-6)
         if not 1 <= self.level <= 6:
@@ -79,30 +78,105 @@ class SemanticTriple:
                 f"Level must be in [1, 6], got {self.level}"
             )
 
+    def _set_confidence(
+        self,
+        confidence_value: Union[float, Sequence[float], Tensor]
+    ) -> None:
+        """Normalize confidence input into scalar + 4-vector tensor."""
+        tensor, is_scalar, scalar_value = self._coerce_confidence_tensor(
+            confidence_value
+        )
+
+        self._confidence_tensor = tensor
+        self._confidence_is_scalar = is_scalar
+
+        if is_scalar:
+            self.confidence = scalar_value
+        else:
+            # Aggregate vector confidence into scalar summary for legacy paths.
+            probs = torch.softmax(tensor, dim=0)
+            self.confidence = float(probs.max().item())
+
+    @staticmethod
+    def _coerce_confidence_tensor(
+        confidence_value: Union[float, Sequence[float], Tensor]
+    ) -> Tuple[Tensor, bool, float]:
+        """Convert confidence inputs into a standardized tensor."""
+        if isinstance(confidence_value, Tensor):
+            tensor = confidence_value.detach().clone().to(dtype=torch.float32)
+            flat = tensor.reshape(-1)
+            if flat.numel() == 1:
+                scalar = float(flat.item())
+                if not 0.0 <= scalar <= 1.0:
+                    raise ValueError(
+                        f"Confidence must be in [0, 1], got {scalar}"
+                    )
+                vector = torch.full((4,), scalar, dtype=torch.float32)
+                return vector, True, scalar
+            if flat.numel() != 4:
+                raise ValueError(
+                    "Confidence tensor must have 4 elements, "
+                    f"got shape {tuple(tensor.shape)}"
+                )
+            return flat.reshape(4), False, float('nan')
+
+        if isinstance(confidence_value, (int, float)):
+            scalar = float(confidence_value)
+            if not 0.0 <= scalar <= 1.0:
+                raise ValueError(
+                    f"Confidence must be in [0, 1], got {scalar}"
+                )
+            vector = torch.full((4,), scalar, dtype=torch.float32)
+            return vector, True, scalar
+
+        if isinstance(confidence_value, Sequence):
+            values = list(confidence_value)
+            tensor = torch.tensor(values, dtype=torch.float32)
+            flat = tensor.reshape(-1)
+            if flat.numel() == 1:
+                return SemanticTriple._coerce_confidence_tensor(flat.item())
+            if flat.numel() != 4:
+                raise ValueError(
+                    "Confidence sequence must contain exactly 4 values, "
+                    f"got {len(values)}"
+                )
+            return flat.reshape(4), False, float('nan')
+
+        raise TypeError(
+            "Confidence must be a float, Tensor, or sequence of floats."
+        )
+
+    def uses_confidence_vector(self) -> bool:
+        """Return True if the triple stores a 4-channel confidence vector."""
+        return not self._confidence_is_scalar
+
+    def get_confidence_tensor(self) -> Tensor:
+        """Return the 4-element confidence tensor for this triple."""
+        return self._confidence_tensor.clone()
+
     def to_tensor(self) -> Tensor:
         """
-        Convert confidence to a PyTorch tensor.
+        Convert confidence representation to a PyTorch tensor.
 
         Returns:
-            Tensor: Scalar tensor containing confidence value
+            Tensor: Shape [4] tensor containing confidence values/log-scores
         """
-        return torch.tensor(self.confidence, dtype=torch.float32)
+        return self.get_confidence_tensor()
 
-    def update_confidence(self, new_confidence: float) -> None:
+    def update_confidence(
+        self,
+        new_confidence: Union[float, Sequence[float], Tensor]
+    ) -> None:
         """
         Update the confidence score.
 
         Args:
-            new_confidence: New confidence value in [0, 1]
+            new_confidence: New confidence value(s)
 
         Raises:
-            ValueError: If new_confidence not in [0, 1]
+            ValueError: If new_confidence has invalid value or shape
         """
-        if not 0.0 <= new_confidence <= 1.0:
-            raise ValueError(
-                f"Confidence must be in [0, 1], got {new_confidence}"
-            )
-        self.confidence = new_confidence
+        self._set_confidence(new_confidence)
 
     def is_concrete(self) -> bool:
         """Check if this triple represents concrete actions/environment."""
@@ -222,14 +296,29 @@ class TripleCollection:
         """Get set of all unique predicate types."""
         return {t.predicate for t in self.triples}
 
-    def get_confidence_tensor(self) -> Tensor:
+    def get_confidence_tensor(self, *, as_vector: bool = False) -> Tensor:
         """
         Get confidence scores as a tensor.
 
+        Args:
+            as_vector: If True, returns stacked [num_triples, 4] tensors.
+                       If False (default), returns scalar confidences.
+
         Returns:
-            Tensor: Shape [num_triples] containing all confidence scores
+            Tensor containing confidence information.
+                - Shape [num_triples] when as_vector is False
+                - Shape [num_triples, 4] when as_vector is True
         """
-        confidences = [t.confidence for t in self.triples]
+        if not self.triples:
+            if as_vector:
+                return torch.zeros(0, 4, dtype=torch.float32)
+            return torch.zeros(0, dtype=torch.float32)
+
+        if as_vector:
+            tensors = [t.get_confidence_tensor() for t in self.triples]
+            return torch.stack(tensors, dim=0)
+
+        confidences = [float(t.confidence) for t in self.triples]
         return torch.tensor(confidences, dtype=torch.float32)
 
     def __len__(self) -> int:

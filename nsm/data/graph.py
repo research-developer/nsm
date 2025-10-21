@@ -5,7 +5,7 @@ Converts semantic triples to PyTorch Geometric Data objects
 for graph neural network processing.
 """
 
-from typing import List, Optional, Tuple, Dict
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 import torch
 from torch import Tensor
 from torch_geometric.data import Data
@@ -36,7 +36,7 @@ class GraphConstructor:
         >>> constructor = GraphConstructor()
         >>> graph = constructor.construct(triples)
         >>> print(graph)
-        Data(x=[3, 64], edge_index=[2, 2], edge_attr=[2, 1], ...)
+        Data(x=[3, 64], edge_index=[2, 2], edge_attr=[2, 4], ...)
     """
 
     def __init__(
@@ -75,7 +75,7 @@ class GraphConstructor:
                 - x: Node features [num_nodes, feat_dim]
                 - edge_index: Edge connectivity [2, num_edges]
                 - edge_attr: Edge attributes including:
-                    - confidence: [num_edges, 1]
+                    - confidence: [num_edges, 4] log-score tensors
                     - edge_type: [num_edges] (predicate indices)
                 - num_nodes: Total number of unique entities
                 - num_edges: Total number of triples
@@ -91,14 +91,14 @@ class GraphConstructor:
             return Data(
                 x=torch.zeros(0, self.node_feature_dim),
                 edge_index=torch.zeros(2, 0, dtype=torch.long),
-                edge_attr=torch.zeros(0, 1)
+                edge_attr=torch.zeros(0, 4)
             )
 
         # Build vocabulary from triples
         node_indices = {}  # entity -> node_idx mapping
         edge_list = []  # List of (src, dst) tuples
         edge_types = []  # List of predicate indices
-        confidences = []  # List of confidence scores
+        confidence_vectors = []  # List of [4] confidence tensors
         node_levels = {}  # entity -> level mapping
 
         current_node_idx = 0
@@ -128,7 +128,7 @@ class GraphConstructor:
             # Create edge from subject to object
             edge_list.append((node_indices[triple.subject], node_indices[triple.object]))
             edge_types.append(pred_idx)
-            confidences.append(triple.confidence)
+            confidence_vectors.append(triple.get_confidence_tensor())
 
         # Convert to tensors
         num_nodes = len(node_indices)
@@ -139,8 +139,8 @@ class GraphConstructor:
         # Edge types for R-GCN
         edge_type = torch.tensor(edge_types, dtype=torch.long)
 
-        # Confidence scores
-        confidence = torch.tensor(confidences, dtype=torch.float32).unsqueeze(1)
+        # Confidence score tensors [num_edges, 4]
+        confidence = torch.stack(confidence_vectors, dim=0)
 
         # Node features
         if node_features is None:
@@ -217,13 +217,18 @@ class GraphConstructor:
 
         return concrete_graph, abstract_graph
 
-    def add_self_loops(self, data: Data, self_loop_weight: float = 1.0) -> Data:
+    def add_self_loops(
+        self,
+        data: Data,
+        self_loop_weight: Union[float, Sequence[float], Tensor] = 1.0
+    ) -> Data:
         """
         Add self-loops to graph (useful for GNN message passing).
 
         Args:
             data: PyG Data object
-            self_loop_weight: Confidence score for self-loops
+            self_loop_weight: Confidence score for self-loops. Accepts
+                scalar or length-4 iterable/tensor.
 
         Returns:
             Data object with self-loops added
@@ -237,11 +242,7 @@ class GraphConstructor:
         data.edge_index = torch.cat([data.edge_index, self_loop_index], dim=1)
 
         # Add self-loop attributes
-        self_loop_attr = torch.full(
-            (num_nodes, 1),
-            self_loop_weight,
-            dtype=torch.float32
-        )
+        self_loop_attr = self._expand_self_loop_weight(num_nodes, self_loop_weight)
         data.edge_attr = torch.cat([data.edge_attr, self_loop_attr], dim=0)
 
         # Add self-loop edge types (use special index for self-loops)
@@ -255,6 +256,39 @@ class GraphConstructor:
         data.edge_type = torch.cat([data.edge_type, self_loop_types], dim=0)
 
         return data
+
+    @staticmethod
+    def _expand_self_loop_weight(
+        num_nodes: int,
+        weight: Union[float, Sequence[float], Tensor]
+    ) -> Tensor:
+        """Expand self-loop weight(s) to [num_nodes, 4] tensor."""
+        if isinstance(weight, Tensor):
+            tensor = weight.detach().clone().to(dtype=torch.float32)
+            flat = tensor.reshape(-1)
+            if flat.numel() == 1:
+                value = float(flat.item())
+                return torch.full((num_nodes, 4), value, dtype=torch.float32)
+            if flat.numel() != 4:
+                raise ValueError(
+                    "Self-loop weight tensor must have 1 or 4 elements"
+                )
+            return flat.reshape(1, 4).repeat(num_nodes, 1)
+
+        if isinstance(weight, Sequence):
+            values = list(weight)
+            tensor = torch.tensor(values, dtype=torch.float32)
+            flat = tensor.reshape(-1)
+            if flat.numel() == 1:
+                return GraphConstructor._expand_self_loop_weight(num_nodes, flat.item())
+            if flat.numel() != 4:
+                raise ValueError(
+                    "Self-loop weight sequence must have length 1 or 4"
+                )
+            return flat.reshape(1, 4).repeat(num_nodes, 1)
+
+        value = float(weight)
+        return torch.full((num_nodes, 4), value, dtype=torch.float32)
 
     def batch_construct(
         self,
@@ -310,7 +344,7 @@ def visualize_graph_structure(data: Data) -> str:
           Nodes: 5
           Edges: 8
           Node features: [5, 64]
-          Edge attributes: [8, 1]
+          Edge attributes: [8, 4]
     """
     info = [
         "Graph Structure:",

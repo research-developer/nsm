@@ -4,6 +4,7 @@ Unit tests for SemanticTriple and TripleCollection classes.
 
 import pytest
 import torch
+from nsm.data.dataset import SyntheticTripleDataset
 from nsm.data.triple import SemanticTriple, TripleCollection
 
 
@@ -72,8 +73,20 @@ class TestSemanticTriple:
         tensor = triple.to_tensor()
 
         assert isinstance(tensor, torch.Tensor)
-        assert tensor.item() == 0.75
+        assert tensor.shape == (4,)
+        assert torch.allclose(tensor, torch.full((4,), 0.75))
         assert tensor.dtype == torch.float32
+
+    def test_vector_confidence_tensor(self):
+        """Test initialization with log-score vector confidence."""
+        log_scores = torch.log_softmax(torch.tensor([1.0, 0.5, -0.5, 2.0]), dim=0)
+        triple = SemanticTriple("A", "r", "B", confidence=log_scores)
+
+        assert triple.uses_confidence_vector()
+        tensor = triple.get_confidence_tensor()
+        assert tensor.shape == (4,)
+        assert torch.allclose(tensor, log_scores.to(torch.float32))
+        assert 0.0 <= triple.confidence <= 1.0
 
     def test_update_confidence(self):
         """Test updating confidence value."""
@@ -84,6 +97,12 @@ class TestSemanticTriple:
 
         with pytest.raises(ValueError):
             triple.update_confidence(1.5)
+
+        new_scores = torch.log_softmax(torch.randn(4), dim=0)
+        triple.update_confidence(new_scores)
+        assert triple.uses_confidence_vector()
+        assert triple.get_confidence_tensor().shape == (4,)
+        assert 0.0 <= triple.confidence <= 1.0
 
     def test_is_concrete(self):
         """Test is_concrete method."""
@@ -233,7 +252,7 @@ class TestTripleCollection:
         assert predicates == {"r1", "r2", "r3", "r4"}
 
     def test_get_confidence_tensor(self, sample_triples):
-        """Test getting confidence scores as tensor."""
+        """Test getting scalar confidence scores as tensor."""
         collection = TripleCollection(sample_triples)
         confidences = collection.get_confidence_tensor()
 
@@ -243,6 +262,26 @@ class TestTripleCollection:
             confidences,
             torch.tensor([0.9, 0.8, 0.7, 0.6])
         )
+
+    def test_get_confidence_tensor_vector(self):
+        """Test stacking 4-channel confidence tensors."""
+        log_a = torch.log_softmax(torch.tensor([0.2, 0.3, 0.1, 0.4]), dim=0)
+        log_b = torch.log_softmax(torch.tensor([-0.1, 0.5, 0.0, 0.2]), dim=0)
+        triples = [
+            SemanticTriple("A", "r1", "B", confidence=log_a),
+            SemanticTriple("B", "r2", "C", confidence=log_b)
+        ]
+        collection = TripleCollection(triples)
+
+        stacked = collection.get_confidence_tensor(as_vector=True)
+
+        assert stacked.shape == (2, 4)
+        assert torch.allclose(stacked[0], log_a)
+        assert torch.allclose(stacked[1], log_b)
+
+        scalar = collection.get_confidence_tensor()
+        assert scalar.shape == (2,)
+        assert torch.all((scalar >= 0.0) & (scalar <= 1.0))
 
     def test_iteration(self, sample_triples):
         """Test iterating over collection."""
@@ -270,3 +309,24 @@ class TestTripleCollection:
 
         assert "TripleCollection" in repr_str
         assert "num_triples=4" in repr_str
+
+
+class TestDatasetIntegration:
+    """Integration tests covering dataset + graph pipeline."""
+
+    def test_synthetic_dataset_confidence_vectors(self, tmp_path):
+        """Synthetic dataset should emit four-channel confidence tensors."""
+        dataset = SyntheticTripleDataset(
+            root=tmp_path / "synthetic",
+            num_entities=5,
+            num_predicates=3,
+            num_triples=3
+        )
+
+        assert dataset.triples, "Synthetic dataset should generate triples"
+        assert all(triple.get_confidence_tensor().shape == (4,) for triple in dataset.triples)
+        assert any(triple.uses_confidence_vector() for triple in dataset.triples)
+
+        graph, _ = dataset[0]
+        assert graph.edge_attr.shape[1] == 4
+        assert graph.edge_attr.shape[0] == 1
