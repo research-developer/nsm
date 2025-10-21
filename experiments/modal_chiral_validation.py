@@ -81,21 +81,27 @@ def validate_attention():
 
     # Load dataset
     print("\nLoading Planning dataset...")
-    # Use num_problems=4100 so that train split (70%) gives us ~2870 samples
-    # We'll then take first 2000 for train, rest for val
-    dataset = PlanningTripleDataset(root="/tmp/planning", split="train", num_problems=4100)
+    # Load full train split with 4100 problems -> gives us ~2870 samples (70%)
+    full_dataset = PlanningTripleDataset(root="/tmp/planning", split="train", num_problems=4100)
 
-    # Split into train/val using Subset
+    # Create custom dataset wrappers for train/val splits
+    class IndexedDataset:
+        def __init__(self, base_dataset, indices):
+            self.base_dataset = base_dataset
+            self.indices = indices
+
+        def __len__(self):
+            return len(self.indices)
+
+        def __getitem__(self, idx):
+            return self.base_dataset[self.indices[idx]]
+
     train_size = 2000
-    val_size = len(dataset) - train_size
-
     train_indices = list(range(train_size))
-    val_indices = list(range(train_size, len(dataset)))
+    val_indices = list(range(train_size, len(full_dataset)))
 
-    # Don't use Subset - instead slice the dataset directly
-    # PyG datasets support slicing and maintain proper batching
-    train_dataset = [dataset[i] for i in train_indices]
-    val_dataset = [dataset[i] for i in val_indices]
+    train_dataset = IndexedDataset(full_dataset, train_indices)
+    val_dataset = IndexedDataset(full_dataset, val_indices)
 
     train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False)
