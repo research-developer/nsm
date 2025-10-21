@@ -82,37 +82,26 @@ def validate_attention():
 
     # Load dataset
     print("\nLoading Planning dataset...")
-    # Load full train split with 4100 problems -> gives us ~2870 samples (70%)
+    # Pre-generate all graphs as a list to avoid indexing issues
     full_dataset = PlanningTripleDataset(root="/tmp/planning", split="train", num_problems=4100)
 
-    # Create custom dataset wrappers for train/val splits
-    class IndexedDataset:
-        def __init__(self, base_dataset, indices):
-            self.base_dataset = base_dataset
-            self.indices = indices
+    # Materialize all graphs into a list
+    all_graphs = [full_dataset[i] for i in range(len(full_dataset))]
 
-        def __len__(self):
-            return len(self.indices)
-
-        def __getitem__(self, idx):
-            return self.base_dataset[self.indices[idx]]
-
+    # Split into train/val
     train_size = 2000
-    train_indices = list(range(train_size))
-    val_indices = list(range(train_size, len(full_dataset)))
+    train_graphs = all_graphs[:train_size]
+    val_graphs = all_graphs[train_size:]
 
-    train_dataset = IndexedDataset(full_dataset, train_indices)
-    val_dataset = IndexedDataset(full_dataset, val_indices)
-
-    # Use Batch.from_data_list as collate_fn for proper PyG batching
+    # Create DataLoaders with explicit collate function
     def pyg_collate(data_list):
         return Batch.from_data_list(data_list)
 
-    train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, collate_fn=pyg_collate)
-    val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False, collate_fn=pyg_collate)
+    train_loader = DataLoader(train_graphs, batch_size=config["batch_size"], shuffle=True, collate_fn=pyg_collate)
+    val_loader = DataLoader(val_graphs, batch_size=config["batch_size"], shuffle=False, collate_fn=pyg_collate)
 
-    print(f"Train samples: {len(train_dataset)}")
-    print(f"Val samples: {len(val_dataset)}")
+    print(f"Train samples: {len(train_graphs)}")
+    print(f"Val samples: {len(val_graphs)}")
 
     # Get data properties from first batch
     sample = next(iter(train_loader))
