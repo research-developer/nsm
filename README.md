@@ -34,6 +34,7 @@ Six semantic levels:
 
 - **Symbolic Layer**: Semantic graph with typed edges (R-GCN), level tags, confidence values
 - **Neural Layer**: Learnable confidence tensors (provenance semirings), message passing with gradient flow
+- **TriFold Semantic Head**: Tropical semiring over (subject, predicate, object, center) log-scores with fold/unfold operators for semantic triple convergence
 - **Training**: Cycle consistency loss `||WHY(WHAT(x))-x||²`, information-theoretic pruning (80-85% sparsification)
 
 ## Current Phase: Phase 1 Foundation
