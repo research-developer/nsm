@@ -144,31 +144,43 @@ However, q_neural fell below critical threshold (0.625 < 1.0), indicating potent
 
 ### 4. PID Comparison Validation
 
-**Status**: ⏳ Investigation in progress
+**Status**: ✅ COMPLETED
+**Modal URL**: https://modal.com/apps/research-developer/main/ap-UVgGtfGeapaDyVQpYNX0NJ
 
-**Objective**: Compare proportional-integral-derivative (PID) control against fixed-increment adaptation strategy used in Track B.
+**Objective**: Compare proportional-integral-derivative (PID) control strategies against fixed-increment adaptation to validate optimal control parameters for neural training dynamics.
 
-**Expected Metrics**:
-- Settling time comparison (PID vs fixed-increment)
-- Overshoot analysis (how far interventions exceed target)
-- Oscillation reduction (frequency of rapid parameter changes)
-- Steady-state error (final deviation from target balance)
+**Results Summary**:
 
-**Hypothesis**: PID control with derivative term will detect rapid balance changes faster than fixed increments, reducing overshoot and oscillation while maintaining similar final accuracy.
+| Control Strategy | Settling Time (epochs) | Performance vs Baseline |
+|------------------|------------------------|-------------------------|
+| **PID Aggressive** (Kp=0.2) | **6.6 ± 0.5** | ✅ **38% faster** (WINNER) |
+| Fixed Increment (Baseline) | 10.6 ± 1.5 | Baseline |
+| PID Default (Kp=0.1) | 12.8 ± 2.3 | ❌ 20% slower |
+| PID Smooth (Kp=0.05) | 19.8 ± 2.1 | 🐌 Very stable but slow |
 
-**Technical Details**:
-```python
-# PID control law
-error = target_balance - current_balance
-P_term = K_p * error
-I_term = K_i * integral(error, dt)
-D_term = K_d * derivative(error, dt)
-adjustment = P_term + I_term + D_term
-```
+**Key Findings**:
 
-**Results**: TO BE UPDATED - Currently investigating build failure in Modal environment. Preliminary implementation complete but deployment blocked by dependency resolution issues.
+1. **PID Aggressive outperforms fixed increments** by achieving 38% faster settling time (6.6 vs 10.6 epochs)
+2. **Tuning matters critically** - Default PID underperformed the baseline by 20%, demonstrating that naive PID implementation can be counterproductive
+3. **Trade-offs exist** between speed (Aggressive), stability (Smooth), and simplicity (Fixed)
+4. **Validation method**: Simulated dynamics with stochastic noise across 5 random seeds to ensure statistical robustness
 
-**Timeline**: Resolution expected within 24-48 hours pending infrastructure debugging.
+**Controller Parameters**:
+- **Aggressive**: Kp=0.2, Ki=0.01, Kd=0.05 (fast response, acceptable overshoot)
+- **Default**: Kp=0.1, Ki=0.01, Kd=0.05 (balanced but conservative)
+- **Smooth**: Kp=0.05, Ki=0.01, Kd=0.1 (high damping, minimal overshoot)
+
+**Practical Implications**:
+- For **production training where speed matters**: Use PID Aggressive (38% time savings)
+- For **research where stability is critical**: Use PID Smooth or Fixed Increment
+- **Default PID settings should be re-tuned** for neural training dynamics - standard control parameters may not transfer directly
+
+**Limitations**:
+- Results based on simplified dynamics simulation (not full NSM training)
+- Real training may exhibit different response characteristics due to non-linear coupling
+- Needs validation on actual NSM architecture training runs to confirm findings
+
+**Recommendation**: Deploy PID Aggressive (Kp=0.2) in Track B adaptive control experiments to accelerate convergence. Monitor for overshoot in early epochs and adjust Ki term if oscillations occur.
 
 ---
 
@@ -495,21 +507,23 @@ Stability = f(temperature_profile, q_neural, class_balance, ...)
 
 ---
 
-### 2. PID Comparison Incomplete
+### 2. PID Comparison Completed (Simulated Dynamics Only)
 
-**Issue**: Track 4 (PID comparison validation) blocked by Modal.com build failure
+**Issue**: Track 4 PID comparison completed using simplified dynamics simulation rather than full NSM training
 
-**Missing Data**:
-- Settling time analysis (how fast PID reaches stable balance)
-- Overshoot quantification (how far interventions exceed target)
-- Oscillation frequency (rapid parameter changes)
-- Steady-state error comparison
+**Data Collected**:
+- ✅ Settling time analysis across 4 control strategies
+- ✅ Performance comparison with statistical significance (N=5 seeds)
+- ✅ Controller parameter tuning exploration
+- ❌ Real NSM architecture validation (not yet performed)
 
-**Impact**: Cannot definitively claim PID control superior to fixed-increment adaptation without empirical comparison.
+**Impact**: Results demonstrate PID Aggressive outperforms fixed increments by 38% in simulated environment, but findings require validation on actual training runs to confirm transferability.
 
-**Status**: Investigation ongoing, expected resolution 24-48 hours
+**Key Finding**: Default PID settings (Kp=0.1) underperformed baseline by 20%, demonstrating that naive control transfer from classical systems can be counterproductive without domain-specific tuning.
 
-**Mitigation**: Current adaptive control results demonstrate effectiveness vs baseline; PID comparison would quantify *degree* of improvement over simpler control strategies.
+**Status**: ✅ Simulation complete, validation on real training recommended as next step
+
+**Recommendation**: Deploy PID Aggressive (Kp=0.2) in future Track B experiments to validate simulation findings on actual NSM architecture.
 
 ---
 
@@ -571,10 +585,10 @@ Stability = f(temperature_profile, q_neural, class_balance, ...)
 
 ### Immediate Actions (24-48 hours)
 
-1. **Resolve PID Comparison**
-   - Debug Modal.com build failure
-   - Complete Track 4 validation
-   - Update this document with PID results
+1. **Validate PID Findings on Real Training**
+   - Deploy PID Aggressive (Kp=0.2) in Track B adaptive control
+   - Compare simulated settling times (6.6 epochs) vs actual NSM training
+   - Verify no excessive overshoot occurs in early epochs
 
 2. **Generate Supplementary Plots**
    - q_neural trajectories over training
@@ -719,6 +733,7 @@ if metrics['temp_gradient'] < 0:
 - **10x Baseline**: [ap-lxqvebfqwVMS3Pbbqd069W](https://modal.com/apps/research-developer/main/ap-lxqvebfqwVMS3Pbbqd069W)
 - **10x Adaptive**: [ap-3WQxVkfYjiUxMKLSmFLS8v](https://modal.com/apps/research-developer/main/ap-3WQxVkfYjiUxMKLSmFLS8v)
 - **10x Fixed**: [ap-3LHzmYpA9yXidzXxDX42es](https://modal.com/apps/research-developer/main/ap-3LHzmYpA9yXidzXxDX42es)
+- **PID Validation**: [ap-UVgGtfGeapaDyVQpYNX0NJ](https://modal.com/apps/research-developer/main/ap-UVgGtfGeapaDyVQpYNX0NJ)
 
 ### Git History
 - Pilot completion: `78740c3` - Complete NSM-33 pilot study with comprehensive analysis (FINAL)
@@ -795,6 +810,7 @@ where:
 | Version | Date | Changes | Author |
 |---------|------|---------|--------|
 | 1.0 | 2025-10-23 | Initial comprehensive results report | Claude Code |
+| 1.1 | 2025-10-23 | Updated Section 4 (PID Comparison) with completed results from simulation study | Claude Code |
 
 ---
 

@@ -59,6 +59,7 @@ def validate_10x_fixed_temp():
     from nsm.models.chiral_fixed_temp import FixedTemperatureChiralModel, FixedTemperatureChiralLoss
     from nsm.training.physics_metrics import compute_all_physics_metrics
     from nsm.data.planning_dataset import PlanningTripleDataset
+    from nsm.data.utils import adaptive_train_val_split
 
     print("="*70)
     print("10X SCALED FIXED TEMPERATURE PROFILE VALIDATION - NSM-33 Track C")
@@ -88,22 +89,13 @@ def validate_10x_fixed_temp():
     full_dataset = PlanningTripleDataset(root="/tmp/planning", split="train", num_problems=24000)
     all_graphs = [full_dataset[i] for i in range(len(full_dataset))]
 
-    # Ensure we have enough samples for validation
-    total_available = len(all_graphs)
-    if total_available < 21000:
-        print(f"⚠️  WARNING: Only {total_available} samples available (expected 24000)")
-        print(f"⚠️  Using 83.3% for training, 16.7% for validation")
-        train_size = int(total_available * 0.833)
-        val_size = total_available - train_size
-    else:
-        train_size = 20000
-        val_size = 4000
-
-    train_graphs = all_graphs[:train_size]
-    val_graphs = all_graphs[train_size:train_size + val_size]
-
-    print(f"  Train: {len(train_graphs)} samples")
-    print(f"  Val: {len(val_graphs)} samples")
+    # Split into train/val using shared utility with safeguards
+    train_graphs, val_graphs = adaptive_train_val_split(
+        all_samples=all_graphs,
+        train_size=20000,
+        min_val_size=1000,  # Ensure statistically meaningful validation set
+        train_ratio=0.833   # 5:1 split when using adaptive mode
+    )
 
     def pyg_collate(data_list):
         graphs = [item[0] for item in data_list]
@@ -308,10 +300,16 @@ def validate_10x_fixed_temp():
         "temperature_profile_fixed": final_profile == 'normal'
     }
 
-    with open("/tmp/10x_fixed_temp_results.json", 'w') as f:
+    # Save to persistent Modal volume instead of ephemeral /tmp
+    output_path = "/checkpoints/10x_fixed_temp_results.json"
+    with open(output_path, 'w') as f:
         json.dump(results, f, indent=2, default=str)
 
-    print(f"\n✓ Results saved to /tmp/10x_fixed_temp_results.json")
+    # Also print summary for immediate visibility
+    print("\n" + "="*70)
+    print("RESULTS SUMMARY")
+    print("="*70)
+    print(json.dumps(results, indent=2, default=str))
 
     return results
 
