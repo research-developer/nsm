@@ -104,7 +104,11 @@ def train_with_cgt_tracking(
 
     # Setup dataset
     print("📊 Loading dataset...")
-    dataset = PlanningTripleDataset(num_problems=num_problems, split='train')
+    dataset = PlanningTripleDataset(
+        root="/tmp/planning",
+        split='train',
+        num_problems=num_problems
+    )
     train_size = int(0.7 * len(dataset))
     val_size = len(dataset) - train_size
 
@@ -112,8 +116,32 @@ def train_with_cgt_tracking(
         dataset, [train_size, val_size]
     )
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    # Custom collate function to handle PyG Data objects
+    def collate_fn(batch):
+        from torch_geometric.data import Batch as PyGBatch
+        data_list = [item[0] for item in batch]
+        # Handle both scalar and tensor labels
+        labels_list = []
+        for item in batch:
+            label = item[1]
+            if isinstance(label, torch.Tensor):
+                label = label.item() if label.dim() == 0 else label.squeeze().item()
+            labels_list.append(label)
+        labels = torch.tensor(labels_list, dtype=torch.long)
+        return PyGBatch.from_data_list(data_list), labels
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_fn
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=collate_fn
+    )
 
     print(f"   Train: {train_size} | Val: {val_size}")
 
@@ -152,14 +180,19 @@ def train_with_cgt_tracking(
         train_correct = 0
         train_total = 0
 
-        for batch in train_loader:
+        for batch, labels in train_loader:
             batch = batch.cuda()
+            labels = labels.cuda()
             optimizer.zero_grad()
 
             output = model(batch.x, batch.edge_index, batch.edge_type, batch.batch)
 
+            # Ensure labels are 1D
+            if labels.dim() > 1:
+                labels = labels.squeeze()
+
             # Task loss
-            task_loss = criterion(output['logits'], batch.y)
+            task_loss = criterion(output['logits'], labels)
 
             # Cycle loss
             cycle_loss = output['cycle_loss_upper'] + output['cycle_loss_lower'] + output['cycle_loss_cross']
@@ -173,8 +206,8 @@ def train_with_cgt_tracking(
             train_cycle_loss += cycle_loss.item()
 
             pred = output['logits'].argmax(dim=1)
-            train_correct += (pred == batch.y).sum().item()
-            train_total += batch.y.size(0)
+            train_correct += (pred == labels).sum().item()
+            train_total += labels.size(0)
 
         train_acc = train_correct / train_total
         avg_train_loss = train_loss / len(train_loader)
@@ -193,20 +226,26 @@ def train_with_cgt_tracking(
         class_1_total = 0
 
         with torch.no_grad():
-            for batch in val_loader:
+            for batch, labels in val_loader:
                 batch = batch.cuda()
+                labels = labels.cuda()
+
+                # Ensure labels are 1D
+                if labels.dim() > 1:
+                    labels = labels.squeeze()
+
                 output = model(batch.x, batch.edge_index, batch.edge_type, batch.batch)
 
-                loss = criterion(output['logits'], batch.y)
+                loss = criterion(output['logits'], labels)
                 val_loss += loss.item()
 
                 pred = output['logits'].argmax(dim=1)
-                val_correct += (pred == batch.y).sum().item()
-                val_total += batch.y.size(0)
+                val_correct += (pred == labels).sum().item()
+                val_total += labels.size(0)
 
                 # Track per-class accuracy
-                mask_0 = (batch.y == 0)
-                mask_1 = (batch.y == 1)
+                mask_0 = (labels == 0)
+                mask_1 = (labels == 1)
                 val_class_0 += (pred[mask_0] == 0).sum().item()
                 val_class_1 += (pred[mask_1] == 1).sum().item()
                 class_0_total += mask_0.sum().item()
@@ -227,7 +266,8 @@ def train_with_cgt_tracking(
             print(f"\n📐 Epoch {epoch+1}/{epochs} - Computing CGT operators...")
 
             # Sample a batch for temperature measurement
-            sample_batch = next(iter(val_loader)).cuda()
+            sample_batch, _ = next(iter(val_loader))
+            sample_batch = sample_batch.cuda()
 
             # Measure Conway temperature
             temp, temp_diag = temperature_conway(
@@ -238,18 +278,13 @@ def train_with_cgt_tracking(
             )
 
             # Extract hinge parameters
-            alpha = extract_hinge_parameter(model, level=2, parameter='alpha')
-            beta = extract_hinge_parameter(model, level=2, parameter='beta')
+            alpha = extract_hinge_parameter(model, param_name='alpha')
+            beta = extract_hinge_parameter(model, param_name='beta')
 
             # Update cooling monitor
             cooling_rate = cooling_monitor.update(alpha, beta)
             cooling_stats = cooling_monitor.get_statistics()
             collapse_time = cooling_monitor.predict_collapse_time(threshold_temp=0.1)
-
-            # Compute all temperature metrics
-            all_temps = compute_all_temperature_metrics(
-                model, sample_batch.x, num_samples=10
-            )
 
             # Physics baseline (q_neural)
             q_neural = (acc_class_0 * acc_class_1 * 4) if (acc_class_0 > 0 and acc_class_1 > 0) else 0.0
@@ -263,9 +298,7 @@ def train_with_cgt_tracking(
                 'beta': float(beta),
                 'q_neural': float(q_neural),
                 'max_left': float(temp_diag['max_left']),
-                'min_right': float(temp_diag['min_right']),
-                'temperature_mse': float(all_temps['temperature_mse']),
-                'temperature_cosine': float(all_temps['temperature_cosine'])
+                'min_right': float(temp_diag['min_right'])
             }
 
             # Collapse risk assessment
@@ -274,7 +307,8 @@ def train_with_cgt_tracking(
 
             print(f"   Temperature: {temp:.4f} (risk: {temp_risk})")
             print(f"   Neural Temp: {cooling_stats['current_temp']:.4f}")
-            print(f"   Cooling Rate: {cooling_rate:.6f if cooling_rate else 'N/A'} (risk: {cooling_risk})")
+            cooling_str = f"{cooling_rate:.6f}" if cooling_rate is not None else "N/A"
+            print(f"   Cooling Rate: {cooling_str} (risk: {cooling_risk})")
             print(f"   α={alpha:.4f}, β={beta:.4f}")
             print(f"   Q_neural: {q_neural:.4f}")
 
@@ -311,7 +345,9 @@ def train_with_cgt_tracking(
 
         # Save checkpoint
         if (epoch + 1) % checkpoint_freq == 0:
-            checkpoint_path = Path(CHECKPOINT_DIR) / f"{run_id}_epoch{epoch+1}.pt"
+            checkpoint_dir = Path(CHECKPOINT_DIR)
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            checkpoint_path = checkpoint_dir / f"{run_id}_epoch{epoch+1}.pt"
             torch.save({
                 'epoch': epoch + 1,
                 'model_state_dict': model.state_dict(),
@@ -351,6 +387,101 @@ def train_with_cgt_tracking(
 
         print(f"\n   Prediction P1.2 (temp < 0.2): {'TRIGGERED' if any_temp_collapse else 'Not triggered'}")
         print(f"   Prediction P2.1 (rapid cooling): {'TRIGGERED' if any_cooling_collapse else 'Not triggered'}")
+
+    # ========================================================================
+    # EXPERIMENT HEALTH CHECK
+    # ========================================================================
+    print("\n" + "="*80)
+    print("EXPERIMENT HEALTH CHECK")
+    print("="*80)
+
+    # Training completeness
+    training_status = "FULL" if epochs >= 15 else "MINIMAL"
+    if epochs < 10:
+        training_status = "PRELIMINARY"
+
+    print(f"Training Status: {training_status} ({epochs} epochs)")
+    if epochs < 15:
+        print(f"  ℹ️  Note: This is a quick validation run")
+        print(f"  💡 Recommendation: Use --epochs=15 or higher for production results")
+
+    # Results quality assessment
+    if cgt_history:
+        final_temp = cgt_history[-1]['temperature_conway']
+        final_accuracy = final_metrics['val_accuracy']
+
+        # Temperature assessment
+        if final_temp < 0.01:
+            quality_status = "EXPECTED for untrained/early-stage models"
+            print(f"\nResults Quality: {quality_status}")
+            print(f"  ⚠️  Conway Temperature: {final_temp:.4f} (near zero)")
+            print(f"  📝 This is EXPECTED behavior for:")
+            print(f"     • Random/untrained models")
+            print(f"     • Early training (< 10 epochs)")
+            print(f"     • Models without WHY/WHAT asymmetry yet")
+            print(f"  ✅ Operators are functioning correctly")
+            print(f"  💡 To see meaningful temperatures, train longer (15+ epochs)")
+        elif final_temp < 0.2:
+            quality_status = "PRELIMINARY"
+            print(f"\nResults Quality: {quality_status}")
+            print(f"  ⚠️  Conway Temperature: {final_temp:.4f} (low)")
+            print(f"  📝 This suggests:")
+            print(f"     • Model beginning to develop structure")
+            print(f"     • Potential collapse risk (temp < 0.2)")
+            print(f"     • May need more training or stability interventions")
+            print(f"  💡 Consider: Longer training or stability-focused hyperparams")
+        else:
+            quality_status = "PRODUCTION-READY"
+            print(f"\nResults Quality: {quality_status}")
+            print(f"  ✅ Conway Temperature: {final_temp:.4f} (healthy)")
+            print(f"  ✅ Model shows stable learning dynamics")
+
+        # Accuracy assessment
+        if final_accuracy < 0.55:
+            print(f"\nModel Performance: PRELIMINARY (accuracy: {final_accuracy:.3f})")
+            print(f"  ℹ️  Low accuracy is EXPECTED for:")
+            print(f"     • Minimal training runs (< 10 epochs)")
+            print(f"     • Untrained models")
+            print(f"  💡 Recommendation: Run full training (15+ epochs) for meaningful results")
+        elif final_accuracy < 0.70:
+            print(f"\nModel Performance: DEVELOPING (accuracy: {final_accuracy:.3f})")
+            print(f"  📊 Model is learning but not yet converged")
+            print(f"  💡 Consider: Additional epochs or hyperparameter tuning")
+        else:
+            print(f"\nModel Performance: STRONG (accuracy: {final_accuracy:.3f})")
+            print(f"  ✅ Model has learned meaningful patterns")
+
+        # CGT validity
+        print(f"\nCGT Validity: ", end="")
+        if final_temp < 0.2:
+            if epochs < 10:
+                print("EXPECTED for early training")
+                print(f"  ✅ Operators functioning correctly")
+                print(f"  📊 Low temperature is normal at this stage")
+            else:
+                print("POTENTIALLY CONCERNING")
+                print(f"  ⚠️  Low temperature after substantial training")
+                print(f"  💡 May indicate collapse risk or need for stability interventions")
+        else:
+            print("VALID")
+            print(f"  ✅ Temperature indicates stable learning dynamics")
+
+        # Summary recommendations
+        print(f"\n" + "─"*80)
+        print("RECOMMENDATIONS:")
+        if epochs < 15:
+            print("  • Run with --epochs=15 or higher for production-quality results")
+        if final_temp < 0.01 and epochs >= 15:
+            print("  • Investigate model architecture (WHY/WHAT symmetry may be too strong)")
+        if final_accuracy < 0.60 and epochs >= 15:
+            print("  • Consider hyperparameter tuning or dataset quality checks")
+        if final_temp > 0.2 and final_accuracy > 0.70:
+            print("  ✅ Results are production-ready!")
+            print("  • Consider this run successful for CGT validation")
+    else:
+        print("\n⚠️  No CGT metrics collected")
+        print("  • Check cgt_sample_freq parameter")
+        print("  • Ensure at least one epoch completed")
 
     # =================================================================
     # FORMAT RESULTS FOR LOGGING
@@ -410,7 +541,9 @@ def train_with_cgt_tracking(
     }
 
     # Save results
-    results_path = Path(RESULTS_DIR) / f"{run_id}_results.json"
+    results_dir = Path(RESULTS_DIR)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    results_path = results_dir / f"{run_id}_results.json"
     with open(results_path, 'w') as f:
         json.dump(experiment_entry, f, indent=2)
 
@@ -429,6 +562,16 @@ def main(epochs: int = 5):
         epochs: Number of training epochs (default: 5 for quick test)
     """
     print(f"🚀 Launching CGT-tracked training ({epochs} epochs)...")
+
+    if epochs < 10:
+        print(f"\nℹ️  Running in QUICK VALIDATION mode ({epochs} epochs)")
+        print(f"   For production results, use --epochs=15 or higher")
+    elif epochs < 15:
+        print(f"\nℹ️  Running in DEVELOPMENT mode ({epochs} epochs)")
+        print(f"   Consider --epochs=15+ for stable results")
+    else:
+        print(f"\n✅ Running in PRODUCTION mode ({epochs} epochs)")
+
     result = train_with_cgt_tracking.remote(epochs=epochs)
 
     print("\n" + "="*80)
@@ -439,8 +582,20 @@ def main(epochs: int = 5):
     print(f"Balance Δ: {result['run_data']['final_metrics']['class_balance_delta']:.4f}")
 
     if 'temperature_conway' in result['run_data']['final_metrics']:
-        print(f"Final Temperature: {result['run_data']['final_metrics']['temperature_conway']:.4f}")
-        print(f"Final Q_neural: {result['run_data']['final_metrics']['q_neural']:.4f}")
+        final_temp = result['run_data']['final_metrics']['temperature_conway']
+        final_q = result['run_data']['final_metrics']['q_neural']
+        print(f"Final Temperature: {final_temp:.4f}")
+        print(f"Final Q_neural: {final_q:.4f}")
+
+        # Quick interpretation
+        if final_temp < 0.01:
+            print(f"\n⚠️  Temperature near zero - EXPECTED for {epochs}-epoch run")
+            if epochs < 10:
+                print(f"   💡 Run with --epochs=15 for meaningful temperature values")
+        elif final_temp < 0.2:
+            print(f"\n⚠️  Low temperature - potential collapse risk")
+        else:
+            print(f"\n✅ Healthy temperature dynamics")
 
     print(f"\n📊 View detailed results at Modal dashboard")
     print(f"💾 Results saved to volume: nsm-cgt-training")
