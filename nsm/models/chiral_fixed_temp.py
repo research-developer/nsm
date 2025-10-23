@@ -61,15 +61,15 @@ class DiversityRegularization(nn.Module):
 
         # Desired: T_L1 < T_L2 < T_L3
         # Penalize violations
-        loss = 0.0
+        loss = torch.tensor(0.0, device=x_l1.device)
 
         # L2 should be hotter than L1
         if T_L2 < T_L1:
-            loss += F.relu(T_L1 - T_L2)  # Penalize inversion
+            loss = loss + F.relu(T_L1 - T_L2)  # Penalize inversion
 
         # L3 should be hotter than L2
         if T_L3 < T_L2:
-            loss += F.relu(T_L2 - T_L3)  # Penalize inversion
+            loss = loss + F.relu(T_L2 - T_L3)  # Penalize inversion
 
         # Also add bonus for correct ordering
         # Encourage gradient: T_L3 - T_L1 > 0.1
@@ -77,16 +77,16 @@ class DiversityRegularization(nn.Module):
         target_gradient = 0.1
 
         if gradient < target_gradient:
-            loss += F.relu(target_gradient - gradient)
+            loss = loss + F.relu(target_gradient - gradient)
 
-        loss *= self.weight
+        loss = loss * self.weight
 
         diagnostics = {
             'T_L1': T_L1.item(),
             'T_L2': T_L2.item(),
             'T_L3': T_L3.item(),
             'T_gradient': gradient.item(),
-            'diversity_loss': loss.item()
+            'diversity_loss': loss.item() if isinstance(loss, torch.Tensor) else loss
         }
 
         return loss, diagnostics
