@@ -22,7 +22,7 @@ app = modal.App("nsm-cgt-training")
 PROJECT_ROOT = Path(__file__).parent.parent.absolute()
 
 # Shared image with all dependencies
-# Note: torch-scatter/sparse require torch to be installed first
+# Note: torch-scatter/sparse need pre-built wheels from PyG
 image = (
     modal.Image.debian_slim()
     .apt_install("git")
@@ -33,10 +33,8 @@ image = (
         "tqdm",
         "networkx"
     )
-    .pip_install(
-        "torch-geometric==2.4.0",
-        "torch-scatter==2.1.2",
-        "torch-sparse==0.6.18"
+    .run_commands(
+        "pip install torch-scatter torch-sparse torch-geometric==2.4.0 -f https://data.pyg.org/whl/torch-2.1.0+cu118.html"
     )
     .add_local_dir(PROJECT_ROOT / "nsm", remote_path="/root/nsm")
     .add_local_dir(PROJECT_ROOT / "experiments", remote_path="/root/experiments")
