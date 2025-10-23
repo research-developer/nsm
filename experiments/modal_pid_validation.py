@@ -17,6 +17,7 @@ Hypothesis (from Control Theory isomorphism):
 Reference: analysis/additional_isomorphisms.md (Control Theory section)
 """
 
+import modal
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -24,13 +25,30 @@ from pathlib import Path
 import json
 from typing import Dict, List, Tuple
 from dataclasses import dataclass, asdict
-
-# Add parent directory to path for imports
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from nsm.training.adaptive_physics_trainer import AdaptivePhysicsConfig, AdaptivePhysicsTrainer
-from nsm.training.pid_controller import PIDController
+# NOTE: nsm imports are moved inside the Modal function to ensure
+# sys.path is set up before importing. Module-level imports would fail
+# because the container doesn't have /root/NSM on PYTHONPATH by default.
+
+# Modal setup
+app = modal.App("nsm-pid-validation")
+
+# Project root
+PROJECT_ROOT = Path(__file__).parent.parent.absolute()
+
+image = (
+    modal.Image.debian_slim(python_version="3.10")
+    .pip_install(
+        "numpy<2",
+        "torch==2.1.0",
+        "torch-geometric==2.4.0",
+        "matplotlib",
+        "tqdm",
+    )
+    .run_commands("pip install torch-scatter torch_sparse -f https://data.pyg.org/whl/torch-2.1.0+cpu.html")
+    .add_local_dir(PROJECT_ROOT, "/root/NSM", copy=True, ignore=["*.pyc", "__pycache__", ".git", "logs", "checkpoints", "data", ".pytest_cache"])
+)
 
 
 @dataclass
@@ -65,7 +83,7 @@ class MockLoss:
 
 
 def simulate_physics_trajectory(
-    trainer: AdaptivePhysicsTrainer,
+    trainer,  # AdaptivePhysicsTrainer - type hint removed for module-level compatibility
     num_epochs: int,
     initial_q: float = 0.6,
     noise_level: float = 0.05,
@@ -218,7 +236,7 @@ def compute_control_metrics(trajectory: Dict[str, List[float]]) -> Dict[str, flo
 
 
 def run_experiment(
-    config: AdaptivePhysicsConfig,
+    config,  # AdaptivePhysicsConfig - type hint removed for module-level compatibility
     scenario_name: str,
     val_config: ValidationConfig,
     seed: int
@@ -577,8 +595,24 @@ def generate_report(results: Dict[str, Dict], val_config: ValidationConfig):
     print(f"\nSaved report: {report_path}")
 
 
-def main():
+@app.function(
+    image=image,
+    gpu="A100",
+    timeout=3600
+)
+def validate_pid_control():
     """Run validation experiments."""
+    import sys
+    sys.path.insert(0, "/root/NSM")
+
+    # Import nsm modules AFTER sys.path is configured
+    from nsm.training.adaptive_physics_trainer import AdaptivePhysicsConfig, AdaptivePhysicsTrainer
+    from nsm.training.pid_controller import PIDController
+
+    # Make these available globally for the helper functions
+    global AdaptivePhysicsTrainer
+    global AdaptivePhysicsConfig
+
     print("="*60)
     print("Modal PID Controller Validation")
     print("="*60)
@@ -589,7 +623,7 @@ def main():
     val_config = ValidationConfig(
         num_epochs=30,
         num_seeds=5,
-        output_dir=Path("results/pid_validation")
+        output_dir=Path("/tmp/pid_validation")
     )
 
     # Run experiments
@@ -628,9 +662,47 @@ def main():
     print("VALIDATION COMPLETE")
     print("="*60)
     print(f"\nResults saved to: {val_config.output_dir}")
-    print("\nTo launch validation:")
-    print("  python experiments/modal_pid_validation.py")
+
+    # Return summary results for local display
+    summary = {}
+    for scenario_name, scenario_data in results.items():
+        metrics_list = scenario_data['metrics']
+        summary[scenario_name] = {
+            'settling_time_mean': float(np.mean([m['settling_time'] for m in metrics_list])),
+            'settling_time_std': float(np.std([m['settling_time'] for m in metrics_list])),
+            'final_q_mean': float(np.mean([m['final_q'] for m in metrics_list])),
+            'final_q_std': float(np.std([m['final_q'] for m in metrics_list])),
+            'overshoot_mean': float(np.mean([m['overshoot'] for m in metrics_list])),
+            'oscillations_mean': float(np.mean([m['oscillations'] for m in metrics_list])),
+        }
+
+    return summary
 
 
-if __name__ == '__main__':
-    main()
+@app.local_entrypoint()
+def main():
+    """Launch PID validation experiment."""
+    print("Launching PID controller validation on Modal...")
+    summary = validate_pid_control.remote()
+
+    # Display results locally
+    print("\n" + "="*70)
+    print("PID VALIDATION RESULTS SUMMARY")
+    print("="*70)
+
+    for scenario, metrics in summary.items():
+        print(f"\n{scenario}:")
+        print(f"  Settling Time: {metrics['settling_time_mean']:.1f} ± {metrics['settling_time_std']:.1f} epochs")
+        print(f"  Final q: {metrics['final_q_mean']:.3f} ± {metrics['final_q_std']:.3f}")
+        print(f"  Overshoot: {metrics['overshoot_mean']:.3f}")
+        print(f"  Oscillations: {metrics['oscillations_mean']:.1f}")
+
+    # Compute improvement if both baseline and PID default exist
+    if 'fixed_increment' in summary and 'pid_default' in summary:
+        baseline_settling = summary['fixed_increment']['settling_time_mean']
+        pid_settling = summary['pid_default']['settling_time_mean']
+        improvement = (baseline_settling - pid_settling) / baseline_settling * 100
+
+        print(f"\n{'='*70}")
+        print(f"PID Default vs Baseline: {improvement:+.1f}% settling time change")
+        print(f"{'='*70}\n")

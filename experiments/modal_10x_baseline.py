@@ -116,9 +116,19 @@ def validate_10x_baseline():
     print(f"Materialized {len(all_graphs)} graphs")
 
     # Split into train/val (10x scaled training set)
-    train_size = 20000
+    # Ensure we have enough samples for validation
+    total_available = len(all_graphs)
+    if total_available < 21000:
+        print(f"⚠️  WARNING: Only {total_available} samples available (expected 24000)")
+        print(f"⚠️  Using 83.3% for training, 16.7% for validation")
+        train_size = int(total_available * 0.833)
+        val_size = total_available - train_size
+    else:
+        train_size = 20000
+        val_size = 4000
+
     train_graphs = all_graphs[:train_size]
-    val_graphs = all_graphs[train_size:]
+    val_graphs = all_graphs[train_size:train_size + val_size]
 
     # Create DataLoaders with explicit collate function
     def pyg_collate(data_list):
