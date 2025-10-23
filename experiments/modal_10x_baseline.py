@@ -68,6 +68,7 @@ def validate_10x_baseline():
     from nsm.training.physics_metrics import compute_all_physics_metrics
     from nsm.data.planning_dataset import PlanningTripleDataset
     from nsm.data.utils import adaptive_train_val_split
+    from nsm.utils.checkpoint_manager import CheckpointManager
 
     print("="*70)
     print("10X SCALED BASELINE VALIDATION (N=20,000)")
@@ -178,6 +179,10 @@ def validate_10x_baseline():
 
     # Optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=config["learning_rate"])
+
+    # Initialize checkpoint manager
+    checkpoint_manager = CheckpointManager("/checkpoints", "nsm-10x-baseline")
+    print(f"Checkpoint manager initialized: {checkpoint_manager.checkpoint_dir}")
 
     # Training loop
     print("\n" + "="*70)
@@ -387,17 +392,45 @@ def validate_10x_baseline():
 
         history.append(epoch_data)
 
-        # Early stopping
-        if val_accuracy > best_val_accuracy:
+        # Save checkpoint and check early stopping
+        is_best = val_accuracy > best_val_accuracy
+
+        if is_best:
             best_val_accuracy = val_accuracy
             best_val_loss = val_loss
             patience_counter = 0
             print(f"\n  New best accuracy: {best_val_accuracy:.4f}")
         else:
             patience_counter += 1
-            if patience_counter >= config["patience"]:
-                print(f"\n  Early stopping triggered (patience={config['patience']})")
-                break
+
+        # Save checkpoint (every epoch)
+        checkpoint_metrics = {
+            "val_accuracy": val_accuracy,
+            "val_loss": val_loss,
+            "class_balance_delta": class_balance_delta
+        }
+
+        # Add physics metrics if available
+        if physics_metrics:
+            checkpoint_metrics["q_neural"] = physics_metrics['q_neural']
+            checkpoint_metrics["Q_factor"] = physics_metrics['Q_factor']
+
+        checkpoint_manager.save_checkpoint(
+            model=model,
+            epoch=epoch + 1,
+            metrics=checkpoint_metrics,
+            config=config,
+            optimizer=optimizer,
+            is_best=is_best
+        )
+
+        # Commit volume after saving checkpoint
+        volume.commit()
+
+        # Check early stopping
+        if patience_counter >= config["patience"]:
+            print(f"\n  Early stopping triggered (patience={config['patience']})")
+            break
 
     # Final results
     print("\n" + "="*70)
