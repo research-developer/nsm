@@ -105,16 +105,37 @@ def temperature_conway(
 
         # Left player moves: WHY then WHAT (abstraction → concretization)
         # Score how well we can reconstruct from abstraction
+        original_size = x.size(0)  # Store original size for exact reconstruction
         left_scores = []
         for _ in range(num_samples):
             if hasattr(model, 'what'):
-                x_recon_left = model.what(x_abstract)
+                # Pass target_size if the method accepts it
+                import inspect
+                sig = inspect.signature(model.what)
+                if 'target_size' in sig.parameters:
+                    x_recon_left = model.what(x_abstract, target_size=original_size)
+                else:
+                    x_recon_left = model.what(x_abstract)
             elif hasattr(model, 'decode'):
                 x_recon_left = model.decode(x_abstract)
             else:
                 raise AttributeError(
                     "Model must have .what() or .decode() method for WHAT operation"
                 )
+
+            # Ensure size matches (trim or pad if needed)
+            if x_recon_left.size(0) != x.size(0):
+                if x_recon_left.size(0) < x.size(0):
+                    # Pad
+                    padding = torch.zeros(
+                        x.size(0) - x_recon_left.size(0),
+                        x.size(1),
+                        device=x.device
+                    )
+                    x_recon_left = torch.cat([x_recon_left, padding], dim=0)
+                else:
+                    # Trim
+                    x_recon_left = x_recon_left[:x.size(0)]
 
             # Compute reconstruction quality
             if metric == 'mse':
@@ -135,13 +156,33 @@ def temperature_conway(
         right_scores = []
         for _ in range(num_samples):
             if hasattr(model, 'what'):
-                x_recon_right = model.what(x_abstract)
+                # Pass target_size if the method accepts it
+                import inspect
+                sig = inspect.signature(model.what)
+                if 'target_size' in sig.parameters:
+                    x_recon_right = model.what(x_abstract, target_size=original_size)
+                else:
+                    x_recon_right = model.what(x_abstract)
             elif hasattr(model, 'decode'):
                 x_recon_right = model.decode(x_abstract)
             else:
                 raise AttributeError(
                     "Model must have .what() or .decode() method for WHAT operation"
                 )
+
+            # Ensure size matches (trim or pad if needed)
+            if x_recon_right.size(0) != x.size(0):
+                if x_recon_right.size(0) < x.size(0):
+                    # Pad
+                    padding = torch.zeros(
+                        x.size(0) - x_recon_right.size(0),
+                        x.size(1),
+                        device=x.device
+                    )
+                    x_recon_right = torch.cat([x_recon_right, padding], dim=0)
+                else:
+                    # Trim
+                    x_recon_right = x_recon_right[:x.size(0)]
 
             if metric == 'mse':
                 score = -torch.mean((x_recon_right - x) ** 2).item()
