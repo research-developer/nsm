@@ -34,7 +34,7 @@ image = (
         "networkx"
     )
     .run_commands(
-        "pip install torch-scatter torch-sparse torch-geometric==2.4.0 -f https://data.pyg.org/whl/torch-2.1.0+cu118.html"
+        "pip install torch-scatter torch-sparse torch-geometric==2.4.0 -f https://data.pyg.org/whl/torch-2.1.0+cu121.html"
     )
     .add_local_dir(PROJECT_ROOT / "nsm", remote_path="/root/nsm")
     .add_local_dir(PROJECT_ROOT / "experiments", remote_path="/root/experiments")
@@ -83,7 +83,7 @@ def train_with_cgt_tracking(
 
     sys.path.insert(0, "/root")
 
-    from nsm.data.planning import PlanningDataset
+    from nsm.data.planning_dataset import PlanningDataset
     from nsm.models.chiral import FullChiralModel
     from nsm.training.cgt_metrics import (
         temperature_conway,
