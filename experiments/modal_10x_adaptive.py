@@ -57,6 +57,7 @@ def validate_10x_adaptive():
     from nsm.training.physics_metrics import compute_all_physics_metrics
     from nsm.training.adaptive_physics_trainer import AdaptivePhysicsConfig, AdaptivePhysicsTrainer
     from nsm.data.planning_dataset import PlanningTripleDataset
+    from nsm.data.utils import adaptive_train_val_split
 
     print("="*70)
     print("10X ADAPTIVE PHYSICS CONTROL VALIDATION - NSM-33 Track B")
@@ -79,9 +80,13 @@ def validate_10x_adaptive():
     full_dataset = PlanningTripleDataset(root="/tmp/planning", split="train", num_problems=24000)
     all_graphs = [full_dataset[i] for i in range(len(full_dataset))]
 
-    train_size = 20000
-    train_graphs = all_graphs[:train_size]
-    val_graphs = all_graphs[train_size:]
+    # Split into train/val using shared utility with safeguards
+    train_graphs, val_graphs = adaptive_train_val_split(
+        all_samples=all_graphs,
+        train_size=20000,
+        min_val_size=1000,  # Ensure statistically meaningful validation set
+        train_ratio=0.833   # 5:1 split when using adaptive mode
+    )
 
     def pyg_collate(data_list):
         graphs = [item[0] for item in data_list]
@@ -301,8 +306,16 @@ def validate_10x_adaptive():
         "intervention_summary": intervention_summary
     }
 
-    with open("/tmp/10x_adaptive_results.json", 'w') as f:
+    # Save to persistent Modal volume instead of ephemeral /tmp
+    output_path = "/checkpoints/10x_adaptive_results.json"
+    with open(output_path, 'w') as f:
         json.dump(results, f, indent=2, default=str)
+
+    # Also print summary for immediate visibility
+    print("\n" + "="*70)
+    print("RESULTS SUMMARY")
+    print("="*70)
+    print(json.dumps(results, indent=2, default=str))
 
     return results
 

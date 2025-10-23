@@ -17,20 +17,43 @@ Hypothesis (from Control Theory isomorphism):
 Reference: analysis/additional_isomorphisms.md (Control Theory section)
 """
 
+import modal
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 import json
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, asdict
-
-# Add parent directory to path for imports
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from nsm.training.adaptive_physics_trainer import AdaptivePhysicsConfig, AdaptivePhysicsTrainer
-from nsm.training.pid_controller import PIDController
+# NOTE: nsm imports are moved inside the Modal function to ensure
+# sys.path is set up before importing. Module-level imports would fail
+# because the container doesn't have /root/NSM on PYTHONPATH by default.
+# Use TYPE_CHECKING guard to enable type hints without runtime imports.
+
+if TYPE_CHECKING:
+    from nsm.training.adaptive_physics_trainer import AdaptivePhysicsConfig, AdaptivePhysicsTrainer
+    from nsm.training.pid_controller import PIDController
+
+# Modal setup
+app = modal.App("nsm-pid-validation")
+
+# Project root
+PROJECT_ROOT = Path(__file__).parent.parent.absolute()
+
+image = (
+    modal.Image.debian_slim(python_version="3.10")
+    .pip_install(
+        "numpy<2",
+        "torch==2.1.0",
+        "torch-geometric==2.4.0",
+        "matplotlib",
+        "tqdm",
+    )
+    .run_commands("pip install torch-scatter torch_sparse -f https://data.pyg.org/whl/torch-2.1.0+cpu.html")
+    .add_local_dir(PROJECT_ROOT, "/root/NSM", copy=True, ignore=["*.pyc", "__pycache__", ".git", "logs", "checkpoints", "data", ".pytest_cache"])
+)
 
 
 @dataclass
@@ -65,7 +88,7 @@ class MockLoss:
 
 
 def simulate_physics_trajectory(
-    trainer: AdaptivePhysicsTrainer,
+    trainer: "AdaptivePhysicsTrainer",
     num_epochs: int,
     initial_q: float = 0.6,
     noise_level: float = 0.05,
@@ -218,13 +241,21 @@ def compute_control_metrics(trajectory: Dict[str, List[float]]) -> Dict[str, flo
 
 
 def run_experiment(
-    config: AdaptivePhysicsConfig,
+    config: "AdaptivePhysicsConfig",
     scenario_name: str,
     val_config: ValidationConfig,
-    seed: int
+    seed: int,
+    trainer_class: type
 ) -> Tuple[Dict[str, List[float]], Dict[str, float]]:
     """
     Run single experiment with given configuration.
+
+    Args:
+        config: Configuration for adaptive physics trainer
+        scenario_name: Name of the scenario being tested
+        val_config: Validation configuration
+        seed: Random seed for reproducibility
+        trainer_class: AdaptivePhysicsTrainer class (passed to avoid global)
 
     Returns:
         (trajectory, metrics) tuple
@@ -232,7 +263,7 @@ def run_experiment(
     # Create trainer
     optimizer = MockOptimizer()
     loss_fn = MockLoss()
-    trainer = AdaptivePhysicsTrainer(config, optimizer, loss_fn)
+    trainer = trainer_class(config, optimizer, loss_fn)
 
     # Simulate trajectory
     trajectory = simulate_physics_trajectory(
@@ -249,9 +280,18 @@ def run_experiment(
     return trajectory, metrics
 
 
-def run_all_scenarios(val_config: ValidationConfig) -> Dict[str, Dict]:
+def run_all_scenarios(
+    val_config: ValidationConfig,
+    config_class: type,
+    trainer_class: type
+) -> Dict[str, Dict]:
     """
     Run all comparison scenarios across multiple seeds.
+
+    Args:
+        val_config: Validation configuration
+        config_class: AdaptivePhysicsConfig class (passed to avoid global)
+        trainer_class: AdaptivePhysicsTrainer class (passed to avoid global)
 
     Returns:
         Dictionary mapping scenario_name → results
@@ -264,7 +304,7 @@ def run_all_scenarios(val_config: ValidationConfig) -> Dict[str, Dict]:
         print("Scenario 1: Fixed Increment (Baseline)")
         print("="*60)
 
-        config = AdaptivePhysicsConfig(
+        config = config_class(
             initial_diversity_weight=0.0,
             initial_cycle_weight=0.01,
             diversity_increment=0.05,
@@ -275,7 +315,7 @@ def run_all_scenarios(val_config: ValidationConfig) -> Dict[str, Dict]:
         scenario_results = {'trajectories': [], 'metrics': []}
         for seed in range(val_config.num_seeds):
             print(f"  Seed {seed+1}/{val_config.num_seeds}...", end=' ')
-            traj, metrics = run_experiment(config, "fixed_increment", val_config, seed)
+            traj, metrics = run_experiment(config, "fixed_increment", val_config, seed, trainer_class)
             scenario_results['trajectories'].append(traj)
             scenario_results['metrics'].append(metrics)
             print(f"Settling: {metrics['settling_time']} epochs, Final q: {metrics['final_q']:.3f}")
@@ -289,7 +329,7 @@ def run_all_scenarios(val_config: ValidationConfig) -> Dict[str, Dict]:
         print("="*60)
         print("  Kp=0.1, Ki=0.01, Kd=0.05 (critically damped ζ≈1.0)")
 
-        config = AdaptivePhysicsConfig(
+        config = config_class(
             initial_diversity_weight=0.0,
             initial_cycle_weight=0.01,
             use_pid_control=True,
@@ -301,7 +341,7 @@ def run_all_scenarios(val_config: ValidationConfig) -> Dict[str, Dict]:
         scenario_results = {'trajectories': [], 'metrics': []}
         for seed in range(val_config.num_seeds):
             print(f"  Seed {seed+1}/{val_config.num_seeds}...", end=' ')
-            traj, metrics = run_experiment(config, "pid_default", val_config, seed)
+            traj, metrics = run_experiment(config, "pid_default", val_config, seed, trainer_class)
             scenario_results['trajectories'].append(traj)
             scenario_results['metrics'].append(metrics)
             print(f"Settling: {metrics['settling_time']} epochs, Final q: {metrics['final_q']:.3f}")
@@ -315,7 +355,7 @@ def run_all_scenarios(val_config: ValidationConfig) -> Dict[str, Dict]:
         print("="*60)
         print("  Kp=0.2, Ki=0.02, Kd=0.05 (faster but may overshoot)")
 
-        config = AdaptivePhysicsConfig(
+        config = config_class(
             initial_diversity_weight=0.0,
             initial_cycle_weight=0.01,
             use_pid_control=True,
@@ -327,7 +367,7 @@ def run_all_scenarios(val_config: ValidationConfig) -> Dict[str, Dict]:
         scenario_results = {'trajectories': [], 'metrics': []}
         for seed in range(val_config.num_seeds):
             print(f"  Seed {seed+1}/{val_config.num_seeds}...", end=' ')
-            traj, metrics = run_experiment(config, "pid_aggressive", val_config, seed)
+            traj, metrics = run_experiment(config, "pid_aggressive", val_config, seed, trainer_class)
             scenario_results['trajectories'].append(traj)
             scenario_results['metrics'].append(metrics)
             print(f"Settling: {metrics['settling_time']} epochs, Final q: {metrics['final_q']:.3f}")
@@ -341,7 +381,7 @@ def run_all_scenarios(val_config: ValidationConfig) -> Dict[str, Dict]:
         print("="*60)
         print("  Kp=0.05, Ki=0.005, Kd=0.1 (overdamped, no overshoot)")
 
-        config = AdaptivePhysicsConfig(
+        config = config_class(
             initial_diversity_weight=0.0,
             initial_cycle_weight=0.01,
             use_pid_control=True,
@@ -353,7 +393,7 @@ def run_all_scenarios(val_config: ValidationConfig) -> Dict[str, Dict]:
         scenario_results = {'trajectories': [], 'metrics': []}
         for seed in range(val_config.num_seeds):
             print(f"  Seed {seed+1}/{val_config.num_seeds}...", end=' ')
-            traj, metrics = run_experiment(config, "pid_smooth", val_config, seed)
+            traj, metrics = run_experiment(config, "pid_smooth", val_config, seed, trainer_class)
             scenario_results['trajectories'].append(traj)
             scenario_results['metrics'].append(metrics)
             print(f"Settling: {metrics['settling_time']} epochs, Final q: {metrics['final_q']:.3f}")
@@ -577,8 +617,20 @@ def generate_report(results: Dict[str, Dict], val_config: ValidationConfig):
     print(f"\nSaved report: {report_path}")
 
 
-def main():
+@app.function(
+    image=image,
+    gpu="A100",
+    timeout=3600
+)
+def validate_pid_control():
     """Run validation experiments."""
+    import sys
+    sys.path.insert(0, "/root/NSM")
+
+    # Import nsm modules AFTER sys.path is configured
+    from nsm.training.adaptive_physics_trainer import AdaptivePhysicsConfig, AdaptivePhysicsTrainer
+    from nsm.training.pid_controller import PIDController
+
     print("="*60)
     print("Modal PID Controller Validation")
     print("="*60)
@@ -589,11 +641,11 @@ def main():
     val_config = ValidationConfig(
         num_epochs=30,
         num_seeds=5,
-        output_dir=Path("results/pid_validation")
+        output_dir=Path("/tmp/pid_validation")
     )
 
-    # Run experiments
-    results = run_all_scenarios(val_config)
+    # Run experiments - pass classes as parameters instead of using globals
+    results = run_all_scenarios(val_config, AdaptivePhysicsConfig, AdaptivePhysicsTrainer)
 
     # Generate plots
     print("\n" + "="*60)
@@ -628,9 +680,47 @@ def main():
     print("VALIDATION COMPLETE")
     print("="*60)
     print(f"\nResults saved to: {val_config.output_dir}")
-    print("\nTo launch validation:")
-    print("  python experiments/modal_pid_validation.py")
+
+    # Return summary results for local display
+    summary = {}
+    for scenario_name, scenario_data in results.items():
+        metrics_list = scenario_data['metrics']
+        summary[scenario_name] = {
+            'settling_time_mean': float(np.mean([m['settling_time'] for m in metrics_list])),
+            'settling_time_std': float(np.std([m['settling_time'] for m in metrics_list])),
+            'final_q_mean': float(np.mean([m['final_q'] for m in metrics_list])),
+            'final_q_std': float(np.std([m['final_q'] for m in metrics_list])),
+            'overshoot_mean': float(np.mean([m['overshoot'] for m in metrics_list])),
+            'oscillations_mean': float(np.mean([m['oscillations'] for m in metrics_list])),
+        }
+
+    return summary
 
 
-if __name__ == '__main__':
-    main()
+@app.local_entrypoint()
+def main():
+    """Launch PID validation experiment."""
+    print("Launching PID controller validation on Modal...")
+    summary = validate_pid_control.remote()
+
+    # Display results locally
+    print("\n" + "="*70)
+    print("PID VALIDATION RESULTS SUMMARY")
+    print("="*70)
+
+    for scenario, metrics in summary.items():
+        print(f"\n{scenario}:")
+        print(f"  Settling Time: {metrics['settling_time_mean']:.1f} ± {metrics['settling_time_std']:.1f} epochs")
+        print(f"  Final q: {metrics['final_q_mean']:.3f} ± {metrics['final_q_std']:.3f}")
+        print(f"  Overshoot: {metrics['overshoot_mean']:.3f}")
+        print(f"  Oscillations: {metrics['oscillations_mean']:.1f}")
+
+    # Compute improvement if both baseline and PID default exist
+    if 'fixed_increment' in summary and 'pid_default' in summary:
+        baseline_settling = summary['fixed_increment']['settling_time_mean']
+        pid_settling = summary['pid_default']['settling_time_mean']
+        improvement = (baseline_settling - pid_settling) / baseline_settling * 100
+
+        print(f"\n{'='*70}")
+        print(f"PID Default vs Baseline: {improvement:+.1f}% settling time change")
+        print(f"{'='*70}\n")
