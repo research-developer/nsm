@@ -83,7 +83,7 @@ def train_with_cgt_tracking(
 
     sys.path.insert(0, "/root")
 
-    from nsm.data.planning_dataset import PlanningDataset
+    from nsm.data.planning_dataset import PlanningTripleDataset
     from nsm.models.chiral import FullChiralModel
     from nsm.training.cgt_metrics import (
         temperature_conway,
@@ -104,7 +104,7 @@ def train_with_cgt_tracking(
 
     # Setup dataset
     print("📊 Loading dataset...")
-    dataset = PlanningDataset(num_problems=num_problems, split='train')
+    dataset = PlanningTripleDataset(num_problems=num_problems, split='train')
     train_size = int(0.7 * len(dataset))
     val_size = len(dataset) - train_size
 
