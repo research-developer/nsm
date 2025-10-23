@@ -40,8 +40,8 @@ image = (
         "numpy", "scipy", "networkx", "matplotlib", "tensorboard",
         "pytest"  # For validation tests
     )
-    # IMPORTANT: Use /root as remote path (not /root/nsm) - Modal adds /root to PYTHONPATH
-    .add_local_dir(PROJECT_ROOT / "nsm", remote_path="/root")
+    # Mount nsm directory at /root/nsm (Modal will make /root importable)
+    .add_local_dir(PROJECT_ROOT / "nsm", remote_path="/root/nsm")
 )
 
 # Persistent volume for checkpoints and results
@@ -81,10 +81,7 @@ class CGTTemperatureValidator:
     @modal.enter(snap=True)
     def load_modules(self):
         """Load heavy imports (CPU-only, snapshotted for fast cold starts)."""
-        import sys
-        sys.path.insert(0, "/root")
-
-        # Import NSM modules
+        # Import NSM modules (Modal automatically adds /root to PYTHONPATH)
         from nsm.data.planning_dataset import PlanningTripleDataset
         from nsm.models.chiral import FullChiralModel
         from nsm.training.trainer import NSMTrainer
@@ -210,7 +207,7 @@ class CGTTemperatureValidator:
             num_bases=8,
             pool_ratio=0.5,
             task_type='classification',
-            num_levels=6
+            dropout=0.1
         ).to(self.device)
 
         model.eval()
@@ -381,7 +378,7 @@ class CGTTemperatureValidator:
             num_bases=8,
             pool_ratio=0.5,
             task_type='classification',
-            num_levels=6
+            dropout=0.1
         ).to(self.device)
 
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
