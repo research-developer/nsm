@@ -148,16 +148,45 @@ class NSMTrainer:
             - total_loss (Tensor): Combined loss for backprop
             - loss_dict (dict): Individual loss components for logging
         """
-        task_loss = self.compute_task_loss(output, labels, task_type)
-        cycle_loss = output.get('cycle_loss', torch.tensor(0.0, device=self.device))
+        # Check if model is using dual-pass mode
+        use_dual_pass = hasattr(self.model, 'use_dual_pass') and self.model.use_dual_pass
 
-        total_loss = task_loss + self.cycle_loss_weight * cycle_loss
+        if use_dual_pass and 'logits_abstract' in output and 'logits_concrete' in output:
+            # DUAL-PASS MODE: Compute losses for all three predictions
+            task_loss_abstract = self.compute_task_loss({'logits': output['logits_abstract']}, labels, task_type)
+            task_loss_concrete = self.compute_task_loss({'logits': output['logits_concrete']}, labels, task_type)
+            task_loss_fused = self.compute_task_loss(output, labels, task_type)  # Uses output['logits'] which is fused
 
-        loss_dict = {
-            'task_loss': task_loss.item(),
-            'cycle_loss': cycle_loss.item(),
-            'total_loss': total_loss.item()
-        }
+            # Combined task loss (fused is primary, abstract/concrete are auxiliary)
+            task_loss = (
+                0.5 * task_loss_fused +      # Primary: fused prediction
+                0.25 * task_loss_abstract +  # Auxiliary: abstract prediction
+                0.25 * task_loss_concrete    # Auxiliary: concrete prediction
+            )
+
+            cycle_loss = output.get('cycle_loss', torch.tensor(0.0, device=self.device))
+            total_loss = task_loss + self.cycle_loss_weight * cycle_loss
+
+            loss_dict = {
+                'task_loss': task_loss.item(),
+                'task_loss_abstract': task_loss_abstract.item(),
+                'task_loss_concrete': task_loss_concrete.item(),
+                'task_loss_fused': task_loss_fused.item(),
+                'cycle_loss': cycle_loss.item(),
+                'total_loss': total_loss.item()
+            }
+        else:
+            # SINGLE-PASS MODE (original behavior)
+            task_loss = self.compute_task_loss(output, labels, task_type)
+            cycle_loss = output.get('cycle_loss', torch.tensor(0.0, device=self.device))
+
+            total_loss = task_loss + self.cycle_loss_weight * cycle_loss
+
+            loss_dict = {
+                'task_loss': task_loss.item(),
+                'cycle_loss': cycle_loss.item(),
+                'total_loss': total_loss.item()
+            }
 
         return total_loss, loss_dict
 
@@ -555,11 +584,26 @@ def compute_classification_metrics(
                 metrics[f'accuracy_class_{label.item()}'] = class_correct / class_total
 
     elif task_type == 'link_prediction':
-        # Binary classification
-        pred_labels = (torch.sigmoid(preds.squeeze()) > 0.5).float()
-        correct = (pred_labels == labels.float()).sum().item()
+        # Binary classification: Handle [batch_size, 2] logits OR [batch_size, 1] probabilities
+        if preds.dim() == 2 and preds.size(1) == 2:
+            # Two-class logits: apply argmax (like standard classification)
+            pred_labels = torch.argmax(preds, dim=1)
+        else:
+            # Single probability: apply sigmoid threshold
+            pred_labels = (torch.sigmoid(preds.squeeze()) > 0.5).long()
+
+        # Labels should be [batch_size] with values 0 or 1
+        correct = (pred_labels == labels).sum().item()
         total = labels.size(0)
         metrics['accuracy'] = correct / total
+
+        # Per-class accuracy (class 0 = false link, class 1 = true link)
+        for label_val in [0, 1]:
+            mask = labels == label_val
+            if mask.sum() > 0:
+                class_correct = (pred_labels[mask] == labels[mask]).sum().item()
+                class_total = mask.sum().item()
+                metrics[f'accuracy_class_{label_val}'] = class_correct / class_total
 
     elif task_type == 'regression':
         # MSE and MAE

@@ -338,7 +338,8 @@ def run_preflight_checks(
     cycle_loss_weight: float = 0.1,
     learning_rate: float = 1e-3,
     class_weights: Optional[torch.Tensor] = None,
-    strict: bool = True
+    strict: bool = True,
+    check_processes: bool = True
 ) -> Dict[str, Any]:
     """
     Run all preflight checks before training.
@@ -350,6 +351,7 @@ def run_preflight_checks(
         learning_rate: Optimizer learning rate
         class_weights: Optional class weights for loss
         strict: If True, raise errors on failures. If False, only warn.
+        check_processes: If True, check for orphaned training processes
 
     Returns:
         dict: All check results
@@ -375,6 +377,11 @@ def run_preflight_checks(
     print("\n" + "="*80)
     print("🚀 Running NSM Preflight Checks (NSM-31)")
     print("="*80 + "\n")
+
+    # Check for orphaned processes first
+    if check_processes:
+        from nsm.evaluation.process_cleanup import check_and_cleanup
+        check_and_cleanup(interactive=True, auto_kill=False)
 
     results = {}
     errors = []

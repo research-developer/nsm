@@ -27,6 +27,13 @@ from nsm.evaluation.planning_metrics import (
     decomposition_accuracy
 )
 
+# Process cleanup utilities (from main branch)
+from nsm.evaluation.process_cleanup import (
+    check_and_cleanup,
+    find_training_processes,
+    kill_process
+)
+
 __all__ = [
     # Preflight checks
     'run_preflight_checks',
@@ -45,4 +52,8 @@ __all__ = [
     'temporal_ordering_accuracy',
     'capability_coverage',
     'decomposition_accuracy',
+    # Process cleanup
+    'check_and_cleanup',
+    'find_training_processes',
+    'kill_process',
 ]
