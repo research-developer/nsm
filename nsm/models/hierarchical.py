@@ -359,6 +359,7 @@ class NSMModel(nn.Module):
 
     Integrates all components:
     - Two SymmetricHierarchicalLayers for L1↔L2↔L3
+    - Dual-pass prediction (abstract + concrete fusion) by default
     - Task-specific prediction heads
     - Confidence-aware output
 
@@ -370,14 +371,27 @@ class NSMModel(nn.Module):
         pool_ratio (float): Pooling ratio for each level
         task_type (str): 'classification', 'regression', or 'link_prediction'
         num_levels (int): Number of hierarchy levels (2 or 3, default 3)
+        use_dual_pass (bool): Use dual-pass prediction (default True)
+        fusion_mode (str): Fusion strategy for dual-pass ('equal', 'learned', 'abstract_only', 'concrete_only')
 
     Example:
+        >>> # Dual-pass mode (default)
         >>> model = NSMModel(
         ...     node_features=64,
         ...     num_relations=16,
         ...     num_classes=2,
         ...     task_type='classification',
         ...     num_levels=3
+        ... )
+        >>>
+        >>> # Single-pass mode (opt-out)
+        >>> model = NSMModel(
+        ...     node_features=64,
+        ...     num_relations=16,
+        ...     num_classes=2,
+        ...     task_type='classification',
+        ...     num_levels=3,
+        ...     use_dual_pass=False
         ... )
         >>>
         >>> # Forward pass
@@ -399,7 +413,7 @@ class NSMModel(nn.Module):
         pool_ratio: float = 0.5,
         task_type: str = 'classification',
         num_levels: int = 3,
-        use_dual_pass: bool = False,
+        use_dual_pass: bool = True,
         fusion_mode: str = 'equal'
     ):
         super().__init__()
