@@ -10,6 +10,9 @@ Implements fusion-plasma-inspired metrics:
 similarities to fusion plasma systems. Dimensional analysis reveals they lack true physical
 correspondence, but remain useful predictive tools validated through NSM-33 experiments.
 
+**Peer Review**: Terminology updated per research-assistant feedback (2025-10-23).
+See TERMINOLOGY_UPDATES.md for complete rationale and change log.
+
 Mathematical parallels (structural, not isomorphic):
 - Neural class collapse ↔ Plasma confinement loss
 - α/β hinge parameters ↔ α/β fusion parameters
