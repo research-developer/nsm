@@ -105,7 +105,8 @@ def create_planning_model(
         num_classes=num_classes,
         num_bases=8,  # 50% parameter reduction
         pool_ratio=0.5,  # Strong hierarchy (goals vs actions)
-        task_type='classification'
+        task_type='classification',
+        num_levels=3  # Phase 1.5: 3-level hierarchy to break symmetry bias
     )
 
     return model.to(device)
@@ -147,9 +148,7 @@ def main(args):
     dataset = PlanningTripleDataset(
         root=args.data_dir,
         split='train',
-        num_plans=args.num_plans,
-        min_actions=3,
-        max_actions=10,
+        num_problems=args.num_plans,  # Fixed: use num_problems parameter
         seed=args.seed
     )
 

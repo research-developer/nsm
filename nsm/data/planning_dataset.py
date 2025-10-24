@@ -570,6 +570,6 @@ class PlanningTripleDataset(BaseSemanticTripleDataset):
 
         # Problem-level label (valid or invalid plan)
         is_valid = (problem_idx % 100) < 50
-        label = torch.tensor(1 if is_valid else 0, dtype=torch.long)
+        label = torch.tensor([1 if is_valid else 0], dtype=torch.long)
 
         return graph, label
