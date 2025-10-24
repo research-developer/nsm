@@ -1,4 +1,4 @@
-# Physics Isomorphisms for Neural Collapse Prediction
+# Physics-Inspired Empirical Heuristics for Neural Collapse Prediction
 
 **Analysis Date**: 2025-10-23
 **Context**: NSM-33 Physics-Inspired Collapse Prediction (Pilot Results)
@@ -8,14 +8,16 @@
 
 ## Overview
 
-This directory contains analysis of **6 mathematical/physical isomorphisms** for predicting and preventing neural collapse in the NSM 6-level chiral architecture:
+This directory contains analysis of **6 empirical heuristics (originally framed as physical isomorphisms)** for predicting and preventing neural collapse in the NSM 6-level chiral architecture:
 
-1. **Fusion-Plasma** (NSM-33, validated) - Safety factor q_neural, temperature profiles, Lawson criterion
+1. **Fusion-Plasma** (NSM-33, validated) - Safety factor q_neural, representation variance profiles, Lawson criterion
 2. **Phase Transitions** (NEW) - Critical slowing, hysteresis, universal scaling
 3. **Control Theory** (NEW) - PID control, anti-windup, optimal damping
-4. **Hydrodynamics** (NEW) - Rayleigh-Bénard convection, temperature inversion
+4. **Hydrodynamics** (NEW) - Rayleigh-Bénard convection, variance inversion
 5. **Quantum Ising** (NEW) - Ferromagnetic coupling, spontaneous symmetry breaking
 6. **Catastrophe Theory** (NEW) - Cusp singularity, bistability, fold bifurcations
+
+**Note on Terminology**: These metrics are inspired by physical systems and exhibit structural similarities, but are **empirical heuristics** rather than rigorous isomorphisms. Dimensional analysis reveals they lack the invariance properties required for true physical analogies. They remain useful predictive tools validated through experiment
 
 ---
 
@@ -50,14 +52,14 @@ This directory contains analysis of **6 mathematical/physical isomorphisms** for
 
 ### 2. Multiple Physics Domains Map to Same Structure
 
-All isomorphisms share:
+All heuristics share common mathematical structure:
 - **Order parameter**: ψ = 1 - |acc₀ - acc₁| (class balance)
-- **Control parameter**: Diversity weight (temperature analog)
+- **Control parameter**: Diversity weight (variance control)
 - **Bifurcation**: Stable → collapsed transition
 - **Hysteresis**: Forward ≠ backward paths
 - **Dynamics**: dψ/dt = -∂V/∂ψ + noise
 
-This is **not coincidence** - reflects universal behavior of nonlinear dynamical systems.
+This reflects universal behavior of nonlinear dynamical systems - the structural similarities are useful for prediction even without rigorous physical correspondence.
 
 ### 3. Physics Metrics Validated
 
