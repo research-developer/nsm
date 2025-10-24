@@ -24,6 +24,7 @@ Mathematical Foundation:
 """
 
 from typing import List, Dict, Tuple, Set, Optional
+from pathlib import Path
 import random
 import torch
 from torch import Tensor
@@ -103,6 +104,7 @@ class PlanningTripleDataset(BaseSemanticTripleDataset):
         num_locations: int = 5,
         num_objects: int = 10,
         seed: int = 42,
+        problems_per_split: bool = False,
         **kwargs
     ):
         """
@@ -112,15 +114,20 @@ class PlanningTripleDataset(BaseSemanticTripleDataset):
             root: Root directory for dataset files
             split: Dataset split ('train', 'val', 'test')
             num_problems: Number of planning problems to generate
+                - If problems_per_split=False (default): Total problems across all splits
+                  (split will contain 70%/15%/15% for train/val/test)
+                - If problems_per_split=True: Problems for THIS split only
             num_locations: Number of locations in environment
             num_objects: Number of objects to manipulate
             seed: Random seed for reproducibility
+            problems_per_split: If True, num_problems specifies count for this split only
             **kwargs: Additional arguments for BaseSemanticTripleDataset
         """
         self.num_problems = num_problems
         self.num_locations = num_locations
         self.num_objects = num_objects
         self.seed = seed
+        self.problems_per_split = problems_per_split
 
         # Set random seed for reproducibility
         random.seed(seed)
@@ -130,6 +137,25 @@ class PlanningTripleDataset(BaseSemanticTripleDataset):
         self.problems: List[Dict] = []
 
         super().__init__(root, split, **kwargs)
+
+    def _save_to_cache(self, path: Path):
+        """Save triples and problems to cache file."""
+        data = {
+            'triples': self.triples,
+            'vocabulary': self.vocabulary,
+            'problems': self.problems,
+        }
+        torch.save(data, path)
+
+    def _load_from_cache(self, path: Path):
+        """Load triples and problems from cache file."""
+        data = torch.load(path, weights_only=False)
+        self.triples = data['triples']
+        if 'vocabulary' in data:
+            self.vocabulary = data['vocabulary']
+            self.graph_constructor.vocabulary = self.vocabulary
+        if 'problems' in data:
+            self.problems = data['problems']
 
     def generate_triples(self) -> List[SemanticTriple]:
         """
@@ -158,15 +184,20 @@ class PlanningTripleDataset(BaseSemanticTripleDataset):
         """
         all_triples = []
 
-        # Split problems by dataset split
-        split_ratios = {'train': 0.7, 'val': 0.15, 'test': 0.15}
-        start_idx = 0
-        for split_name, ratio in split_ratios.items():
-            if split_name == self.split:
-                break
-            start_idx += int(self.num_problems * ratio)
-
-        num_split_problems = int(self.num_problems * split_ratios[self.split])
+        # Determine problem range for this split
+        if self.problems_per_split:
+            # Direct: generate exactly num_problems for this split
+            start_idx = 0
+            num_split_problems = self.num_problems
+        else:
+            # Original behavior: split num_problems across train/val/test
+            split_ratios = {'train': 0.7, 'val': 0.15, 'test': 0.15}
+            start_idx = 0
+            for split_name, ratio in split_ratios.items():
+                if split_name == self.split:
+                    break
+                start_idx += int(self.num_problems * ratio)
+            num_split_problems = int(self.num_problems * split_ratios[self.split])
 
         for problem_idx in range(start_idx, start_idx + num_split_problems):
             # Use problem index to seed for reproducibility
@@ -196,13 +227,40 @@ class PlanningTripleDataset(BaseSemanticTripleDataset):
 
         Returns:
             List of triples representing one planning problem
+
+        Complexity Parameters (varied for diversity):
+            - num_locations: 3-10 locations (default: 5)
+            - num_objects: 5-20 objects (default: 10)
+            - num_actions: 3-15 actions (varied by complexity tier)
+            - branching_factor: 2-4 (goal decomposition width)
+            - goal_depth: 3-8 (hierarchical depth)
+            - dependency_prob: 0.3-0.8 (action prerequisite density)
         """
         triples = []
         robot = f"robot_{problem_idx}"
 
-        # 1. Generate environmental state (Level 1)
-        locations = [f"loc_{problem_idx}_{i}" for i in range(self.num_locations)]
-        objects = [f"obj_{problem_idx}_{i}" for i in range(self.num_objects)]
+        # Determine complexity tier based on problem index for diversity
+        # Tier 0 (simple): 40%, Tier 1 (medium): 40%, Tier 2 (complex): 20%
+        tier = 0 if problem_idx % 100 < 40 else (1 if problem_idx % 100 < 80 else 2)
+
+        # Complexity parameters vary by tier
+        complexity_params = {
+            0: {'locations': (3, 6), 'objects': (5, 10), 'actions': (3, 6),
+                'dep_prob': 0.3, 'capabilities': (2, 3), 'goal_depth': (3, 4)},
+            1: {'locations': (5, 8), 'objects': (8, 15), 'actions': (6, 10),
+                'dep_prob': 0.6, 'capabilities': (3, 4), 'goal_depth': (4, 6)},
+            2: {'locations': (7, 10), 'objects': (12, 20), 'actions': (10, 15),
+                'dep_prob': 0.8, 'capabilities': (4, 6), 'goal_depth': (6, 8)}
+        }
+
+        params = complexity_params[tier]
+
+        # 1. Generate environmental state (Level 1) - VARIED COMPLEXITY
+        num_locs = random.randint(*params['locations'])
+        num_objs = random.randint(*params['objects'])
+
+        locations = [f"loc_{problem_idx}_{i}" for i in range(num_locs)]
+        objects = [f"obj_{problem_idx}_{i}" for i in range(num_objs)]
 
         # Robot location
         robot_location = random.choice(locations)
@@ -212,7 +270,7 @@ class PlanningTripleDataset(BaseSemanticTripleDataset):
             object=robot_location,
             confidence=random.uniform(0.95, 1.0),
             level=1,
-            metadata={'problem': problem_idx, 'type': 'state'}
+            metadata={'problem': problem_idx, 'type': 'state', 'tier': tier}
         ))
 
         # Object locations
@@ -224,7 +282,7 @@ class PlanningTripleDataset(BaseSemanticTripleDataset):
                 object=obj_location,
                 confidence=random.uniform(0.9, 1.0),
                 level=1,
-                metadata={'problem': problem_idx, 'type': 'state'}
+                metadata={'problem': problem_idx, 'type': 'state', 'tier': tier}
             ))
 
             # Some locations contain objects
@@ -234,11 +292,11 @@ class PlanningTripleDataset(BaseSemanticTripleDataset):
                 object=obj,
                 confidence=random.uniform(0.9, 0.98),
                 level=1,
-                metadata={'problem': problem_idx, 'type': 'state'}
+                metadata={'problem': problem_idx, 'type': 'state', 'tier': tier}
             ))
 
-        # 2. Generate action sequences (Level 1)
-        num_actions = random.randint(3, 8)
+        # 2. Generate action sequences (Level 1) - VARIED COMPLEXITY
+        num_actions = random.randint(*params['actions'])
         action_sequence = []
 
         for action_idx in range(num_actions):
@@ -254,57 +312,78 @@ class PlanningTripleDataset(BaseSemanticTripleDataset):
                 object=target,
                 confidence=random.uniform(0.85, 0.95),
                 level=1,
-                metadata={'problem': problem_idx, 'type': 'action', 'sequence': action_idx}
+                metadata={'problem': problem_idx, 'type': 'action', 'sequence': action_idx, 'tier': tier}
             ))
 
-            # Action prerequisites (some actions depend on previous ones)
-            if action_idx > 0 and random.random() < 0.6:
-                prev_action = action_sequence[action_idx - 1][0]
+            # Action prerequisites - VARIED DEPENDENCY DENSITY
+            if action_idx > 0 and random.random() < params['dep_prob']:
+                # Sometimes depend on immediate predecessor, sometimes on earlier action
+                lookback = min(action_idx, random.randint(1, 3))
+                prev_action = action_sequence[action_idx - lookback][0]
                 triples.append(SemanticTriple(
                     subject=action_name,
                     predicate='requires',
                     object=prev_action,
                     confidence=random.uniform(0.8, 0.9),
                     level=1,
-                    metadata={'problem': problem_idx, 'type': 'prerequisite'}
+                    metadata={'problem': problem_idx, 'type': 'prerequisite', 'tier': tier}
                 ))
 
-        # 3. Generate goals and decomposition (Level 2)
-        goal_template = random.choice(list(self.GOAL_TEMPLATES.keys()))
-        goal_name = f"goal_{goal_template}_{problem_idx}"
+        # 3. Generate goals and decomposition (Level 2) - VARIED DEPTH
+        goal_depth = random.randint(*params['goal_depth'])
 
-        # Goal achievement
-        triples.append(SemanticTriple(
-            subject=robot,
-            predicate='achieve',
-            object=goal_name,
-            confidence=random.uniform(0.7, 0.85),
-            level=2,
-            metadata={'problem': problem_idx, 'type': 'goal'}
-        ))
+        # Create hierarchical goal structure
+        goals = []
+        for depth in range(goal_depth):
+            goal_template = random.choice(list(self.GOAL_TEMPLATES.keys()))
+            goal_name = f"goal_{goal_template}_{problem_idx}_{depth}"
+            goals.append(goal_name)
 
-        # Goal requires specific actions (hierarchical decomposition)
-        required_actions = self.GOAL_TEMPLATES[goal_template]
-        for action_type in required_actions:
-            # Find actions of this type in the sequence
-            matching_actions = [
-                name for name, atype in action_sequence if atype == action_type
-            ]
-            if matching_actions:
-                action = random.choice(matching_actions)
+            # Top-level goal achievement
+            if depth == 0:
                 triples.append(SemanticTriple(
-                    subject=goal_name,
-                    predicate='requires',
-                    object=action,
+                    subject=robot,
+                    predicate='achieve',
+                    object=goal_name,
+                    confidence=random.uniform(0.7, 0.85),
+                    level=2,
+                    metadata={'problem': problem_idx, 'type': 'goal', 'depth': depth, 'tier': tier}
+                ))
+            else:
+                # Subgoal decomposition
+                parent_goal = goals[depth - 1]
+                triples.append(SemanticTriple(
+                    subject=parent_goal,
+                    predicate='decomposes_to',
+                    object=goal_name,
                     confidence=random.uniform(0.75, 0.9),
                     level=2,
-                    metadata={'problem': problem_idx, 'type': 'decomposition'}
+                    metadata={'problem': problem_idx, 'type': 'decomposition', 'depth': depth, 'tier': tier}
                 ))
 
-        # 4. Generate capability requirements (Level 2)
+            # Goal requires specific actions (hierarchical decomposition)
+            required_actions = self.GOAL_TEMPLATES[goal_template]
+            for action_type in required_actions:
+                # Find actions of this type in the sequence
+                matching_actions = [
+                    name for name, atype in action_sequence if atype == action_type
+                ]
+                if matching_actions:
+                    action = random.choice(matching_actions)
+                    triples.append(SemanticTriple(
+                        subject=goal_name,
+                        predicate='requires',
+                        object=action,
+                        confidence=random.uniform(0.75, 0.9),
+                        level=2,
+                        metadata={'problem': problem_idx, 'type': 'decomposition', 'tier': tier}
+                    ))
+
+        # 4. Generate capability requirements (Level 2) - VARIED COUNT
+        num_caps = random.randint(*params['capabilities'])
         required_capabilities = random.sample(
             list(self.CAPABILITIES),
-            k=random.randint(2, 4)
+            k=min(num_caps, len(self.CAPABILITIES))
         )
 
         for capability in required_capabilities:
@@ -317,29 +396,34 @@ class PlanningTripleDataset(BaseSemanticTripleDataset):
                 object=capability_name,
                 confidence=random.uniform(0.85, 0.95),
                 level=2,
-                metadata={'problem': problem_idx, 'type': 'capability'}
+                metadata={'problem': problem_idx, 'type': 'capability', 'tier': tier}
             ))
 
-            # Goal requires capability
-            triples.append(SemanticTriple(
-                subject=goal_name,
-                predicate='requires',
-                object=capability_name,
-                confidence=random.uniform(0.8, 0.92),
-                level=2,
-                metadata={'problem': problem_idx, 'type': 'requirement'}
-            ))
+            # Multiple goals may require same capability
+            for goal_name in goals[:min(3, len(goals))]:  # Link to first few goals
+                if random.random() < 0.6:
+                    triples.append(SemanticTriple(
+                        subject=goal_name,
+                        predicate='requires',
+                        object=capability_name,
+                        confidence=random.uniform(0.8, 0.92),
+                        level=2,
+                        metadata={'problem': problem_idx, 'type': 'requirement', 'tier': tier}
+                    ))
 
-            # Capability enables certain actions
-            for action_name, action_type in action_sequence[:2]:  # Link to first few actions
-                if random.random() < 0.4:  # Not all capabilities enable all actions
+            # Capability enables certain actions - VARIED BRANCHING
+            num_enabled_actions = random.randint(2, min(5, len(action_sequence)))
+            enabled_actions = random.sample(action_sequence, k=num_enabled_actions)
+
+            for action_name, action_type in enabled_actions:
+                if random.random() < 0.5:  # Not all capabilities enable all actions
                     triples.append(SemanticTriple(
                         subject=capability_name,
                         predicate='enables',
                         object=action_name,
                         confidence=random.uniform(0.75, 0.88),
                         level=2,
-                        metadata={'problem': problem_idx, 'type': 'enablement'}
+                        metadata={'problem': problem_idx, 'type': 'enablement', 'tier': tier}
                     ))
 
         return triples
