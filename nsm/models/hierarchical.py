@@ -398,7 +398,9 @@ class NSMModel(nn.Module):
         num_bases: Optional[int] = None,
         pool_ratio: float = 0.5,
         task_type: str = 'classification',
-        num_levels: int = 3
+        num_levels: int = 3,
+        use_dual_pass: bool = False,
+        fusion_mode: str = 'equal'
     ):
         super().__init__()
 
@@ -407,6 +409,8 @@ class NSMModel(nn.Module):
         self.num_classes = num_classes
         self.task_type = task_type
         self.num_levels = num_levels
+        self.use_dual_pass = use_dual_pass
+        self.fusion_mode = fusion_mode
 
         # L1 ↔ L2 hierarchical layer
         self.layer_1_2 = SymmetricHierarchicalLayer(
@@ -451,6 +455,46 @@ class NSMModel(nn.Module):
             )
         else:
             raise ValueError(f"Unknown task_type: {task_type}")
+
+        # Dual-pass prediction heads (only if use_dual_pass=True)
+        if use_dual_pass:
+            if task_type in ['classification', 'link_prediction']:
+                self.predictor_abstract = nn.Sequential(
+                    nn.Linear(node_features, node_features // 2),
+                    nn.ReLU(),
+                    nn.Dropout(0.1),
+                    nn.Linear(node_features // 2, num_classes)
+                )
+                self.predictor_concrete = nn.Sequential(
+                    nn.Linear(node_features, node_features // 2),
+                    nn.ReLU(),
+                    nn.Dropout(0.1),
+                    nn.Linear(node_features // 2, num_classes)
+                )
+            elif task_type == 'regression':
+                self.predictor_abstract = nn.Sequential(
+                    nn.Linear(node_features, node_features // 2),
+                    nn.ReLU(),
+                    nn.Linear(node_features // 2, 1)
+                )
+                self.predictor_concrete = nn.Sequential(
+                    nn.Linear(node_features, node_features // 2),
+                    nn.ReLU(),
+                    nn.Linear(node_features // 2, 1)
+                )
+
+            # Learned fusion weights (if fusion_mode='learned')
+            if fusion_mode == 'learned':
+                self.fusion_attention = nn.Sequential(
+                    nn.Linear(node_features * 2, 64),
+                    nn.ReLU(),
+                    nn.Linear(64, 2),
+                    nn.Softmax(dim=-1)
+                )
+        else:
+            self.predictor_abstract = None
+            self.predictor_concrete = None
+            self.fusion_attention = None
 
     def forward(
         self,
@@ -557,55 +601,115 @@ class NSMModel(nn.Module):
             # Total cycle loss (weighted average)
             cycle_loss = 0.7 * cycle_loss_l1 + 0.3 * cycle_loss_l2
 
-            # Task prediction from L3 (most abstract)
-            x_abstract = x_l3
-            perm_abstract = perm_l3
-
-            # Store results for analysis
-            result = {
-                'x_l2': x_l2,
-                'x_l3': x_l3,
-                'x_l1_reconstructed': x_l1_reconstructed,
-                'x_l2_reconstructed': x_l2_reconstructed,
-                'cycle_loss': cycle_loss,
-                'cycle_loss_l1': cycle_loss_l1,
-                'cycle_loss_l2': cycle_loss_l2,
-                'perm_l2': perm_l2,
-                'perm_l3': perm_l3
-            }
-
-        # Task prediction from most abstract level
-        if self.task_type in ['classification', 'regression']:
-            # Graph-level prediction: global pooling
-            if batch is not None:
+            # DUAL-PASS MODE: Make predictions from both abstract and concrete levels
+            if self.use_dual_pass:
+                # Pass 1 prediction: From L3 (abstract, after bottom-up)
                 from torch_geometric.nn import global_mean_pool
-                if self.num_levels == 3:
-                    batch_abstract = batch_l3
+                x_graph_abstract = global_mean_pool(x_l3, batch_l3) if batch is not None else x_l3.mean(dim=0, keepdim=True)
+                logits_abstract = self.predictor_abstract(x_graph_abstract)
+
+                # Pass 2 prediction: From L1' (concrete, after top-down reconstruction)
+                x_graph_concrete = global_mean_pool(x_l1_reconstructed, batch) if batch is not None else x_l1_reconstructed.mean(dim=0, keepdim=True)
+                logits_concrete = self.predictor_concrete(x_graph_concrete)
+
+                # Fusion of predictions
+                if self.fusion_mode == 'equal':
+                    # Equal weighting
+                    logits_fused = 0.5 * logits_abstract + 0.5 * logits_concrete
+                    fusion_weights = (0.5, 0.5)
+                elif self.fusion_mode == 'learned':
+                    # Learned attention-based fusion
+                    fusion_input = torch.cat([x_graph_abstract, x_graph_concrete], dim=-1)
+                    weights = self.fusion_attention(fusion_input)  # [batch, 2]
+                    alpha, beta = weights[:, 0:1], weights[:, 1:2]
+                    logits_fused = alpha * logits_abstract + beta * logits_concrete
+                    fusion_weights = (alpha.mean().item(), beta.mean().item())
+                elif self.fusion_mode == 'abstract_only':
+                    # Ablation: only use abstract prediction
+                    logits_fused = logits_abstract
+                    fusion_weights = (1.0, 0.0)
+                elif self.fusion_mode == 'concrete_only':
+                    # Ablation: only use concrete prediction
+                    logits_fused = logits_concrete
+                    fusion_weights = (0.0, 1.0)
                 else:
-                    batch_abstract = batch[perm_l2]
-                x_graph = global_mean_pool(x_abstract, batch_abstract)
+                    raise ValueError(f"Unknown fusion_mode: {self.fusion_mode}")
+
+                # Store all predictions for multi-task loss
+                result = {
+                    'x_l2': x_l2,
+                    'x_l3': x_l3,
+                    'x_l1_reconstructed': x_l1_reconstructed,
+                    'x_l2_reconstructed': x_l2_reconstructed,
+                    'cycle_loss': cycle_loss,
+                    'cycle_loss_l1': cycle_loss_l1,
+                    'cycle_loss_l2': cycle_loss_l2,
+                    'perm_l2': perm_l2,
+                    'perm_l3': perm_l3,
+                    'logits': logits_fused,  # Fused prediction is the main output
+                    'logits_abstract': logits_abstract,
+                    'logits_concrete': logits_concrete,
+                    'fusion_weights': fusion_weights
+                }
+
+                # Use fused prediction for backward compatibility
+                x_abstract = x_l3  # For later graph pooling (not used in dual-pass)
+                perm_abstract = perm_l3
+
             else:
-                # Single graph: mean pooling
-                x_graph = x_abstract.mean(dim=0, keepdim=True)
+                # SINGLE-PASS MODE (original behavior)
+                # Task prediction from L3 (most abstract)
+                x_abstract = x_l3
+                perm_abstract = perm_l3
 
-            logits = self.predictor(x_graph)
+                # Store results for analysis
+                result = {
+                    'x_l2': x_l2,
+                    'x_l3': x_l3,
+                    'x_l1_reconstructed': x_l1_reconstructed,
+                    'x_l2_reconstructed': x_l2_reconstructed,
+                    'cycle_loss': cycle_loss,
+                    'cycle_loss_l1': cycle_loss_l1,
+                    'cycle_loss_l2': cycle_loss_l2,
+                    'perm_l2': perm_l2,
+                    'perm_l3': perm_l3
+                }
 
-        elif self.task_type == 'link_prediction':
-            # Graph-level binary prediction (edge exists/doesn't exist)
-            if batch is not None:
-                from torch_geometric.nn import global_mean_pool
-                if self.num_levels == 3:
-                    batch_abstract = batch_l3
+        # Task prediction from most abstract level (only if NOT using dual-pass)
+        if not self.use_dual_pass:
+            if self.task_type in ['classification', 'regression']:
+                # Graph-level prediction: global pooling
+                if batch is not None:
+                    from torch_geometric.nn import global_mean_pool
+                    if self.num_levels == 3:
+                        batch_abstract = batch_l3
+                    else:
+                        batch_abstract = batch[perm_l2]
+                    x_graph = global_mean_pool(x_abstract, batch_abstract)
                 else:
-                    batch_abstract = batch[perm_l2]
-                x_graph = global_mean_pool(x_abstract, batch_abstract)
-            else:
-                # Single graph: mean pooling
-                x_graph = x_abstract.mean(dim=0, keepdim=True)
+                    # Single graph: mean pooling
+                    x_graph = x_abstract.mean(dim=0, keepdim=True)
 
-            logits = self.predictor(x_graph)
+                logits = self.predictor(x_graph)
 
-        result['logits'] = logits
+            elif self.task_type == 'link_prediction':
+                # Graph-level binary prediction (edge exists/doesn't exist)
+                if batch is not None:
+                    from torch_geometric.nn import global_mean_pool
+                    if self.num_levels == 3:
+                        batch_abstract = batch_l3
+                    else:
+                        batch_abstract = batch[perm_l2]
+                    x_graph = global_mean_pool(x_abstract, batch_abstract)
+                else:
+                    # Single graph: mean pooling
+                    x_graph = x_abstract.mean(dim=0, keepdim=True)
+
+                logits = self.predictor(x_graph)
+
+            result['logits'] = logits
+
+        # Add x_abstract to result for both modes
         result['x_abstract'] = x_abstract
 
         return result
