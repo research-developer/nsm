@@ -394,6 +394,10 @@ class CausalTripleDataset(BaseSemanticTripleDataset):
         Returns:
             Binary label tensor [0 or 1]
 
+        Raises:
+            ValueError: If label cannot be determined from scenario metadata,
+                indicating a bug in scenario/triple generation logic
+
         Note:
             The model must learn to predict effectiveness while
             accounting for confounders (not just correlations).
@@ -417,8 +421,15 @@ class CausalTripleDataset(BaseSemanticTripleDataset):
                     elif self.triples[t_idx].predicate == "symptom_persists":
                         return torch.tensor([0], dtype=torch.long)
 
-            # Default: random label if cannot determine
-            return torch.tensor([random.randint(0, 1)], dtype=torch.long)
+            # CRITICAL: If we reach here, something is wrong with dataset generation
+            # All triples should be mappable to scenarios with known outcomes
+            raise ValueError(
+                f"Cannot determine label for triple {idx}: "
+                f"subject='{triple.subject}', predicate='{triple.predicate}', "
+                f"object='{triple.object}', scenario={scenario_idx}. "
+                f"This indicates a bug in scenario/triple generation logic. "
+                f"All triples should be mappable to scenarios with defined outcomes."
+            )
 
     def get_scenario(self, scenario_idx: int) -> Dict:
         """

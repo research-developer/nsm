@@ -710,12 +710,15 @@ class FullChiralModel(nn.Module):
 
         # Upper trifold cycle: L1 → L3 → L1
         x_l1_reconstructed_from_l3 = torch.zeros_like(x_l1)
+        # FIX #1: Use scatter_ instead of in-place assignment to maintain gradient flow
         # Unpool L3 back through L2 to L1
         x_l3_to_l2 = torch.zeros(num_l2_nodes, self.node_features, device=x_l1.device)
-        x_l3_to_l2[perm_l3] = x_l3_refined
+        # scatter_ properly tracks gradients through indexing operations
+        x_l3_to_l2.scatter_(0, perm_l3.unsqueeze(1).expand(-1, self.node_features), x_l3_refined)
 
         x_l2_to_l1 = torch.zeros_like(x_l1)
-        x_l2_to_l1[perm_l2] = self.reconstruct_l1_from_l3(x_l3_to_l2)
+        x_l2_to_l1.scatter_(0, perm_l2.unsqueeze(1).expand(-1, self.node_features),
+                           self.reconstruct_l1_from_l3(x_l3_to_l2))
 
         cycle_loss_upper = F.mse_loss(x_l2_to_l1, x_l1)
 
