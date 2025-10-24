@@ -10,7 +10,9 @@
 
 ## Executive Summary
 
-Scaled validation at 10x dataset size (N≈14,000 vs N=2,000) confirms physics-inspired metrics provide actionable diagnostic value for neural class collapse prediction. All three experimental tracks demonstrated substantial improvements over the pilot baseline, with best validation accuracy increasing from 48.16% to 67.11% (+39.3% relative improvement). Physics-based adaptive control achieved superior class balance (Δ=2.28%), while diversity regularization successfully corrected the inverted temperature profile that plagued the pilot study.
+Scaled validation at 10x dataset size (N≈14,000 vs N=2,000) confirms physics-inspired empirical heuristics provide actionable diagnostic value for neural class collapse prediction. All three experimental tracks demonstrated substantial improvements over the pilot baseline, with best validation accuracy increasing from 48.16% to 67.11% (+39.3% relative improvement). Physics-based adaptive control achieved superior class balance (Δ=2.28%), while diversity regularization successfully corrected the inverted representation variance profile that plagued the pilot study.
+
+**Note on Terminology**: This document uses physics-inspired terminology (q_neural, "temperature" profile) for metrics that are **empirical heuristics** rather than rigorous physical isomorphisms. While structurally analogous to fusion plasma systems, dimensional analysis reveals these metrics lack true physical correspondence. They remain valuable predictive tools validated through experiment.
 
 **Key Findings**:
 - **Scale benefits confirmed**: 10x dataset increase yielded +15-18% absolute accuracy gains across all conditions
@@ -24,7 +26,7 @@ Scaled validation at 10x dataset size (N≈14,000 vs N=2,000) confirms physics-i
 
 **H1 (Track A - Scale)**: Scaling to N=20K will improve accuracy by ≥10% absolute
 **H2 (Track B - Adaptive)**: Physics-informed control will achieve better class balance than baseline
-**H3 (Track C - Temperature)**: Diversity regularization will correct inverted temperature profile
+**H3 (Track C - Variance Profile)**: Diversity regularization will correct inverted representation variance profile
 
 ### Hypothesis Outcomes
 - **H1**: ✅ **CONFIRMED** - Achieved +15.85% to +18.38% improvement (exceeded 10% threshold)
@@ -49,14 +51,15 @@ Scaled validation at 10x dataset size (N≈14,000 vs N=2,000) confirms physics-i
 | Class Balance Δ | 5.91% | -23.69% (improved) |
 | Training Epochs | 30 | Same |
 
-**Physics Metrics (Final Epoch)**:
+**Empirical Stability Metrics (Final Epoch)**:
 - **q_neural**: 1.336 [STABLE] - Above critical threshold (q > 1.0)
-- **Temperature Gradient**: 13.209 [NORMAL] - Positive gradient (T_L1 < T_L3)
+- **Variance Gradient**: 13.209 [NORMAL] - Positive gradient (T_L1 < T_L3)
 - **Lawson Q Factor**: 0.001 [SUBIGNITION] - Below ignition threshold
-- **Temperature Profile**: T_L1=0.381, T_L2=3.268, T_L3=13.590
+- **Representation Variance Profile**: T_L1=0.381, T_L2=3.268, T_L3=13.590
+  - Note: "T" denotes variance/entropy, not thermal temperature
 
 **Analysis**:
-Scale-up yielded dramatic improvement over pilot baseline (48.16% → 67.11%), confirming H1. Surprisingly, temperature profile normalized at scale without intervention, contrasting with pilot's persistent inversion. However, q_neural remained stable throughout training, suggesting larger datasets provide inherent regularization against collapse.
+Scale-up yielded dramatic improvement over pilot baseline (48.16% → 67.11%), confirming H1. Surprisingly, variance profile normalized at scale without intervention, contrasting with pilot's persistent inversion. However, q_neural remained stable throughout training, suggesting larger datasets provide inherent regularization against collapse.
 
 **Modal Experiment**: [ap-lxqvebfqwVMS3Pbbqd069W](https://modal.com/apps/research-developer/main/ap-lxqvebfqwVMS3Pbbqd069W)
 
