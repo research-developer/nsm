@@ -1,15 +1,19 @@
 """
-Physics-inspired metrics for predicting class collapse in chiral neural architectures.
+Physics-inspired empirical heuristics for predicting class collapse in chiral neural architectures.
 
-Implements fusion-plasma isomorphism metrics:
+Implements fusion-plasma-inspired metrics:
 - Safety factor q_neural (stability predictor)
-- Temperature profiles (diversity tracking)
-- Lawson criterion (training success predictor)
+- Representation variance profiles (diversity tracking)
+- Lawson criterion analog (training success predictor)
 
-Based on the discovered mathematical parallels between:
+**Note**: These are empirical heuristics (not rigorous isomorphisms) inspired by structural
+similarities to fusion plasma systems. Dimensional analysis reveals they lack true physical
+correspondence, but remain useful predictive tools validated through NSM-33 experiments.
+
+Mathematical parallels (structural, not isomorphic):
 - Neural class collapse ↔ Plasma confinement loss
-- α/β fusion parameters ↔ α/β hinge mixing weights
-- Temperature regulation ↔ Diversity maintenance
+- α/β hinge parameters ↔ α/β fusion parameters
+- Representation variance ↔ Temperature in fusion systems
 
 References:
 - Lawson, J.D. (1957). "Some Criteria for a Power Producing Thermonuclear Reactor"
@@ -104,25 +108,29 @@ def compute_temperature_profile(
     method: str = 'variance'
 ) -> Dict[str, float]:
     """
-    Compute "temperature" (diversity/entropy) at each hierarchical level.
+    Compute representation variance profile at each hierarchical level.
 
-    In fusion plasmas, temperature profiles T(r) determine confinement quality.
-    In neural networks, representation diversity serves analogous role:
-        - High T: Diverse, information-rich representations
-        - Low T: Collapsed, uniform representations
-        - Inverted profile (T_core < T_edge): Instability warning
+    **Note**: "Temperature" here refers to representation variance/entropy, NOT thermal
+    temperature. The term is borrowed from fusion physics by analogy but represents a
+    fundamentally different quantity (statistical dispersion, not kinetic energy).
 
-    Temperature inversions predict collapse events (analogous to sawteeth oscillations).
+    In the fusion analogy: temperature profiles T(r) determine confinement quality.
+    In neural networks: representation variance serves structurally analogous role:
+        - High variance: Diverse, information-rich representations
+        - Low variance: Collapsed, uniform representations
+        - Inverted profile (variance decreasing with abstraction): Instability indicator
+
+    Variance inversions empirically correlate with collapse events in NSM-33 experiments.
 
     Args:
         level_representations: Dict mapping level names to feature tensors
             e.g., {'L1': x_l1, 'L2': x_l2, 'L3': x_l3}
-        method: 'variance' or 'entropy' for temperature computation
+        method: 'variance' or 'entropy' for measurement
 
     Returns:
         Dict with:
-            - 'T_{level}': Temperature at each level
-            - 'T_gradient': Temperature gradient (L1 → L3)
+            - 'T_{level}': Variance/entropy at each level (NOT thermal temperature)
+            - 'T_gradient': Variance gradient (L1 → L3)
             - 'profile_type': 'normal', 'flat', or 'inverted'
     """
     temperatures = {}
@@ -133,10 +141,10 @@ def compute_temperature_profile(
             continue
 
         if method == 'variance':
-            # Variance-based temperature: Spread of representations
+            # Variance-based measurement: Spread of representations
             temp = x.var(dim=0).mean().item()
         elif method == 'entropy':
-            # Entropy-based temperature: Information content
+            # Entropy-based measurement: Information content
             # Use softmax to get probability distribution
             probs = torch.softmax(x, dim=-1)
             entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=-1).mean().item()
@@ -146,7 +154,7 @@ def compute_temperature_profile(
 
         temperatures[f'T_{level_name}'] = temp
 
-    # Compute temperature gradient (should be positive: L1 < L2 < L3)
+    # Compute variance gradient (should be positive: L1 < L2 < L3 for healthy hierarchy)
     level_order = sorted([k for k in temperatures.keys() if k.startswith('T_L')])
     if len(level_order) >= 2:
         T_first = temperatures[level_order[0]]
