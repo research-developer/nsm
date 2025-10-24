@@ -549,9 +549,14 @@ def compute_classification_metrics(
                 metrics[f'accuracy_class_{label.item()}'] = class_correct / class_total
 
     elif task_type == 'link_prediction':
-        # Binary classification
-        pred_labels = (torch.sigmoid(preds.squeeze()) > 0.5).float()
-        correct = (pred_labels == labels.float()).sum().item()
+        # Binary classification (uses 2-class logits with cross_entropy)
+        if preds.dim() > 1 and preds.size(1) > 1:
+            # Multi-class logits (e.g., [batch_size, 2])
+            pred_labels = preds.argmax(dim=1)
+        else:
+            # Binary sigmoid output
+            pred_labels = (torch.sigmoid(preds.squeeze()) > 0.5).long()
+        correct = (pred_labels == labels).sum().item()
         total = labels.size(0)
         metrics['accuracy'] = correct / total
 
