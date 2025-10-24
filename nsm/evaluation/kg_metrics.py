@@ -433,18 +433,17 @@ def compute_kg_comprehensive_metrics(
             graph = graph.to(device)
 
             # Get model prediction
-            # This assumes model returns (output, confidence)
-            # Actual implementation depends on model architecture
-            # output, confidence = model(graph)
-            # all_predictions.append(output)
-            # all_targets.append(label)
-            # all_confidences.append(confidence)
+            # NOTE: This function is a stub for future implementation
+            # when we need batch evaluation across all KG metrics.
+            # Currently, metrics are computed per-batch in the training loop
+            # using the simplified wrapper functions below.
             pass
 
-    # TODO: Implement once model architecture is defined
-    # metrics['link_prediction'] = compute_link_prediction_metrics(...)
-    # metrics['type_consistency'] = compute_type_consistency_accuracy(...)
-    # metrics['calibration'] = compute_calibration_error(...)
+    # NOTE: Not yet implemented - use simplified wrappers in training loop instead
+    # Future implementation would compute:
+    # - Link prediction metrics (currently handled in training loop)
+    # - Type consistency metrics (requires type hierarchy)
+    # - Calibration error (requires confidence scores)
 
     return metrics
 
@@ -452,71 +451,97 @@ def compute_kg_comprehensive_metrics(
 # Simplified wrapper functions for training loop integration
 
 def compute_hits_at_k(preds: torch.Tensor, labels: torch.Tensor, dataset=None, k: int = 10) -> float:
-    """Simplified Hits@K for training loop.
-    
+    """Simplified Hits@K for training loop (binary classification variant).
+
+    Note: The current KG dataset does binary link prediction (valid/invalid triple),
+    not entity ranking. This metric approximates ranking-style Hits@K using
+    classification confidence scores.
+
     Args:
-        preds: Predicted logits [batch_size, num_entities]
-        labels: Ground truth entity IDs [batch_size]
-        dataset: Dataset (optional)
-        k: Number of top predictions to consider
-    
+        preds: Predicted logits [batch_size, num_classes] for binary classification
+        labels: Ground truth labels [batch_size] (0 or 1)
+        dataset: Dataset (optional, unused in binary mode)
+        k: Unused in binary classification mode
+
     Returns:
-        float: Hits@K score
+        float: Accuracy for positive class (approximates Hits@K)
     """
-    # Get top-k predictions
-    _, top_k_indices = torch.topk(preds, k=min(k, preds.size(1)), dim=1)
-    
-    # Check if true label is in top-k
-    labels_expanded = labels.unsqueeze(1).expand_as(top_k_indices)
-    hits = (top_k_indices == labels_expanded).any(dim=1).float()
-    
-    return hits.mean().item()
+    # For binary classification, treat as accuracy on positive examples
+    if preds.dim() == 2 and preds.size(1) == 2:
+        # Two-class logits [batch_size, 2]
+        pred_labels = torch.argmax(preds, dim=1)
+    else:
+        # Single probability output
+        pred_labels = (torch.sigmoid(preds.squeeze()) > 0.5).long()
+
+    # Compute accuracy on positive examples only (valid triples)
+    positive_mask = (labels == 1)
+    if positive_mask.sum() > 0:
+        hits = (pred_labels[positive_mask] == labels[positive_mask]).float().mean().item()
+    else:
+        hits = 0.0
+
+    return hits
 
 
 def compute_mrr(preds: torch.Tensor, labels: torch.Tensor, dataset=None) -> float:
-    """Simplified Mean Reciprocal Rank for training loop.
-    
+    """Simplified Mean Reciprocal Rank for training loop (binary classification variant).
+
+    Note: The current KG dataset does binary link prediction (valid/invalid triple),
+    not entity ranking. This metric approximates MRR using prediction confidence
+    on positive examples.
+
     Args:
-        preds: Predicted logits [batch_size, num_entities]
-        labels: Ground truth entity IDs [batch_size]
-        dataset: Dataset (optional)
-    
+        preds: Predicted logits [batch_size, num_classes] for binary classification
+        labels: Ground truth labels [batch_size] (0 or 1)
+        dataset: Dataset (optional, unused in binary mode)
+
     Returns:
-        float: MRR score
+        float: Average confidence on positive examples (approximates MRR)
     """
-    # Sort predictions in descending order
-    sorted_indices = torch.argsort(preds, dim=1, descending=True)
-    
-    # Find rank of true label
-    ranks = []
-    for i, label in enumerate(labels):
-        rank = (sorted_indices[i] == label).nonzero(as_tuple=True)[0]
-        if len(rank) > 0:
-            ranks.append(1.0 / (rank.item() + 1))  # +1 for 1-indexed rank
-        else:
-            ranks.append(0.0)
-    
-    return sum(ranks) / len(ranks) if ranks else 0.0
+    # For binary classification, compute confidence on positive examples
+    if preds.dim() == 2 and preds.size(1) == 2:
+        # Two-class logits: get probability for positive class
+        probs = torch.softmax(preds, dim=1)[:, 1]  # Probability of class 1
+    else:
+        # Single probability output
+        probs = torch.sigmoid(preds.squeeze())
+
+    # Average confidence on true positive examples
+    positive_mask = (labels == 1)
+    if positive_mask.sum() > 0:
+        mrr_approx = probs[positive_mask].mean().item()
+    else:
+        mrr_approx = 0.0
+
+    return mrr_approx
 
 
 def compute_analogical_reasoning_accuracy(preds: torch.Tensor, labels: torch.Tensor, dataset=None) -> float:
-    """Simplified analogical reasoning for training loop.
-    
-    For A:B::C:? analogy patterns.
-    
+    """Simplified analogical reasoning for training loop (binary classification variant).
+
+    Note: The current KG dataset does binary link prediction (valid/invalid triple),
+    not analogical reasoning patterns. This metric returns overall accuracy as a
+    proxy for reasoning capability.
+
     Args:
-        preds: Predicted logits [batch_size, num_entities]
-        labels: Ground truth entity IDs [batch_size]
-        dataset: Dataset (optional)
-    
+        preds: Predicted logits [batch_size, num_classes] for binary classification
+        labels: Ground truth labels [batch_size] (0 or 1)
+        dataset: Dataset (optional, unused in binary mode)
+
     Returns:
-        float: Analogical reasoning accuracy
+        float: Overall classification accuracy (proxy for analogical reasoning)
     """
-    # Simplified version: check if prediction is correct
-    pred_labels = torch.argmax(preds, dim=1)
+    # For binary classification, compute accuracy
+    if preds.dim() == 2 and preds.size(1) == 2:
+        # Two-class logits
+        pred_labels = torch.argmax(preds, dim=1)
+    else:
+        # Single probability output
+        pred_labels = (torch.sigmoid(preds.squeeze()) > 0.5).long()
+
     correct = (pred_labels == labels).sum().item()
     total = labels.size(0)
-    
-    # Scale down slightly to reflect difficulty of analogical reasoning
-    accuracy = (correct / total) * 0.8 if total > 0 else 0.0
+
+    accuracy = correct / total if total > 0 else 0.0
     return accuracy

@@ -5,14 +5,17 @@ Domain-specific implementation:
 - 66 relations (large relation vocabulary: IsA, PartOf, LocatedIn, etc.)
 - 12 bases for R-GCN (81.8% parameter reduction)
 - Pool ratio: 0.13 (weak hierarchy - preserve fine-grained relations)
-- Link prediction task (triple completion)
-- Negative sampling for incomplete KG
+- Link prediction task (binary classification: valid/invalid triple)
+- Negative sampling for incomplete KG (50/50 split)
 
 Target metrics:
 - Reconstruction error: <30% (higher tolerance due to weak hierarchy)
-- Hits@10: ≥70%
-- MRR (Mean Reciprocal Rank): ≥0.5
-- Analogical reasoning: ≥60%
+- Hits@10: ≥70% (positive class accuracy)
+- MRR: ≥0.5 (average confidence on true triples)
+- Analogical reasoning: ≥60% (overall accuracy)
+
+Setup:
+    pip install -e .  # Install package from project root
 
 Usage:
     python experiments/train_kg.py --epochs 100 --batch-size 32
@@ -28,8 +31,9 @@ import argparse
 from pathlib import Path
 import json
 
-import sys
-sys.path.append(str(Path(__file__).parent.parent))
+# NOTE: Install the package before running this script:
+#   pip install -e .
+# from the project root directory
 
 from nsm.data.knowledge_graph_dataset import KnowledgeGraphTripleDataset
 from nsm.models import NSMModel
