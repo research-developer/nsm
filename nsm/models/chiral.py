@@ -494,6 +494,48 @@ class FullChiralModel(nn.Module):
 
         return x_normalized * scale + min_val
 
+    def _compute_diversity_loss(
+        self,
+        x: torch.Tensor,
+        batch: torch.Tensor,
+        epsilon: float = 1e-8
+    ) -> torch.Tensor:
+        """
+        Compute diversity regularization loss for level representations.
+
+        Penalizes collapsed representations (low variance/entropy).
+        This is the "temperature regulation" from fusion physics analogy.
+
+        Args:
+            x: Node features [num_nodes, dim]
+            batch: Batch assignment [num_nodes]
+            epsilon: Numerical stability
+
+        Returns:
+            Diversity loss (scalar) - lower means more diverse (good)
+        """
+        # Compute per-graph variance (temperature proxy)
+        unique_batches = torch.unique(batch)
+        diversities = []
+
+        for b in unique_batches:
+            mask = (batch == b)
+            x_batch = x[mask]
+
+            if x_batch.size(0) > 1:
+                # Variance across nodes (measures spread)
+                variance = x_batch.var(dim=0).mean()
+
+                # Penalize low variance (collapsed representations)
+                # Use negative log to create loss that encourages high variance
+                diversity_loss = -torch.log(variance + epsilon)
+                diversities.append(diversity_loss)
+
+        if len(diversities) > 0:
+            return torch.stack(diversities).mean()
+        else:
+            return torch.tensor(0.0, device=x.device)
+
     def _align_sizes(
         self,
         x_small: torch.Tensor,
@@ -581,6 +623,11 @@ class FullChiralModel(nn.Module):
 
         # L3: Message passing
         x_l3_up = self.rgcn_l3(x_l3_up, edge_index_l3, edge_type_l3)
+
+        # ===== L3 DIVERSITY REGULARIZATION (Temperature Fix) =====
+        # Prevent L3 collapse by maintaining representation diversity
+        # Compute per-graph diversity and store for loss computation
+        l3_diversity = self._compute_diversity_loss(x_l3_up, batch_l3)
 
         # ===== LOWER TRIFOLD: L6 → L5 → L4 (WHAT operation) =====
         # L6: Start with prior (or custom if provided)
@@ -696,6 +743,9 @@ class FullChiralModel(nn.Module):
             'cycle_loss_upper': cycle_loss_upper,
             'cycle_loss_lower': cycle_loss_lower,
             'cycle_loss_cross': cycle_loss_cross,
+
+            # Diversity loss (for adaptive training control)
+            'diversity_loss': l3_diversity,
 
             # Level representations (for analysis)
             'x_l1': x_l1_refined,
