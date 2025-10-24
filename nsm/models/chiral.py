@@ -86,6 +86,10 @@ class ChiralHingeExchange(nn.Module):
         Returns:
             (x_upper_refined, x_lower_refined): Fused representations
         """
+        # FIX #4: Input validation - ensure shape compatibility
+        assert x_upper.shape == x_lower.shape, \
+            f"Shape mismatch in hinge exchange: upper {x_upper.shape} vs lower {x_lower.shape}"
+
         # Transform flows for cross-pollination
         lower_transformed = self.transform_lower_for_upper(x_lower)
         upper_transformed = self.transform_upper_for_lower(x_upper)
@@ -464,11 +468,10 @@ class FullChiralModel(nn.Module):
         min_val = x.min(dim=0, keepdim=True)[0]
         max_val = x.max(dim=0, keepdim=True)[0]
 
-        # Avoid division by zero
+        # FIX #3: Use epsilon additive for numerical stability
+        eps = 1e-8
         scale = max_val - min_val
-        scale = torch.where(scale < 1e-8, torch.ones_like(scale), scale)
-
-        x_normalized = (x - min_val) / scale
+        x_normalized = (x - min_val) / (scale + eps)
 
         return x_normalized, min_val, max_val
 
@@ -489,10 +492,10 @@ class FullChiralModel(nn.Module):
         Returns:
             x: Denormalized features
         """
+        # FIX #3: Match normalization epsilon for proper inversion
+        eps = 1e-8
         scale = max_val - min_val
-        scale = torch.where(scale < 1e-8, torch.ones_like(scale), scale)
-
-        return x_normalized * scale + min_val
+        return x_normalized * (scale + eps) + min_val
 
     def _align_sizes(
         self,
@@ -518,14 +521,11 @@ class FullChiralModel(nn.Module):
         if num_small == num_large:
             return x_small
 
-        # Broadcast smaller to match larger via learned transform + interpolation
+        # FIX #2: Proper unpooling using perm_large (inverts pooling operation)
         x_aligned = torch.zeros(num_large, dim, device=x_small.device, dtype=x_small.dtype)
-
-        # Map each large node to nearest small node (simple nearest neighbor)
-        indices = (torch.arange(num_large, device=x_small.device).float() * (num_small / num_large)).long()
-        indices = torch.clamp(indices, 0, num_small - 1)
-
-        x_aligned = x_small[indices]
+        # Place small tensor values at positions specified by perm_large
+        valid_size = min(num_small, perm_large.size(0))
+        x_aligned[perm_large[:valid_size]] = x_small[:valid_size]
 
         return x_aligned
 
@@ -665,10 +665,12 @@ class FullChiralModel(nn.Module):
         x_l1_reconstructed_from_l3 = torch.zeros_like(x_l1)
         # Unpool L3 back through L2 to L1
         x_l3_to_l2 = torch.zeros(num_l2_nodes, self.node_features, device=x_l1.device)
-        x_l3_to_l2[perm_l3] = x_l3_refined
+        # FIX #1: Use scatter_ for proper gradient tracking
+        x_l3_to_l2.scatter_(0, perm_l3.unsqueeze(1).expand(-1, self.node_features), x_l3_refined)
 
         x_l2_to_l1 = torch.zeros_like(x_l1)
-        x_l2_to_l1[perm_l2] = self.reconstruct_l1_from_l3(x_l3_to_l2)
+        x_l2_to_l1.scatter_(0, perm_l2.unsqueeze(1).expand(-1, self.node_features),
+                           self.reconstruct_l1_from_l3(x_l3_to_l2))
 
         cycle_loss_upper = F.mse_loss(x_l2_to_l1, x_l1)
 
