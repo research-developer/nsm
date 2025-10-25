@@ -335,8 +335,8 @@ class SyntheticTripleDataset(BaseSemanticTripleDataset):
             predicate = f"pred_{torch.randint(0, self.num_predicates, (1,)).item()}"
             obj = f"entity_{torch.randint(0, self.num_entities, (1,)).item()}"
 
-            # Random confidence and level
-            confidence = torch.rand(1).item()
+            # Random confidence log-scores and level
+            confidence = torch.log_softmax(torch.randn(4), dim=0)
             level = torch.randint(1, self.num_levels + 1, (1,)).item()
 
             triple = SemanticTriple(
