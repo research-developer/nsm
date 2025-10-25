@@ -765,6 +765,111 @@ class FullChiralModel(nn.Module):
             'batch_l3': batch_l3
         }
 
+    def why(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        WHY operation: Abstraction (concrete → abstract, bottom-up).
+
+        Performs the upper trifold flow L1 → L2 → L3 to extract abstract
+        representations from concrete node features.
+
+        Args:
+            x: Node features [num_nodes, node_features]
+
+        Returns:
+            Abstract representation (L3) [num_l3_nodes, node_features]
+        """
+        # Create minimal graph structure if not provided
+        num_nodes = x.size(0)
+        device = x.device
+
+        # Self-loops as minimal graph structure
+        edge_index = torch.stack([
+            torch.arange(num_nodes, device=device),
+            torch.arange(num_nodes, device=device)
+        ])
+        edge_type = torch.zeros(num_nodes, dtype=torch.long, device=device)
+        batch = torch.zeros(num_nodes, dtype=torch.long, device=device)
+
+        # Forward through upper trifold only
+        x_l1 = self.rgcn_l1(x, edge_index, edge_type)
+
+        x_l2_up, edge_index_l2, edge_type_l2, batch_l2, perm_l2, score_l2 = self.pool_l1_to_l2.why_operation(
+            x_l1, edge_index, edge_attr=edge_type, batch=batch
+        )
+        x_l2_up = self.rgcn_l2(x_l2_up, edge_index_l2, edge_type_l2)
+
+        x_l3_up, edge_index_l3, edge_type_l3, batch_l3, perm_l3, score_l3 = self.pool_l2_to_l3.why_operation(
+            x_l2_up, edge_index_l2, edge_attr=edge_type_l2, batch=batch_l2
+        )
+        x_l3_up = self.rgcn_l3(x_l3_up, edge_index_l3, edge_type_l3)
+
+        return x_l3_up
+
+    def what(self, z: torch.Tensor, target_size: Optional[int] = None) -> torch.Tensor:
+        """
+        WHAT operation: Concretization (abstract → concrete, top-down).
+
+        Performs the lower trifold flow L6 → L5 → L4 and reconstructs back
+        to L1 size to produce concrete implementations from abstract specs.
+
+        Args:
+            z: Abstract representation (L3-sized) [num_l3_nodes, node_features]
+            target_size: Optional target L1 size for exact reconstruction
+
+        Returns:
+            Concrete reconstruction (L1-sized) [target_size or estimated, node_features]
+        """
+        # Use abstract input as L6 prior
+        num_l3_nodes = z.size(0)
+        device = z.device
+
+        # Create graph structure at L3 level
+        edge_index_l3 = torch.stack([
+            torch.arange(num_l3_nodes, device=device),
+            torch.arange(num_l3_nodes, device=device)
+        ])
+        edge_type_l3 = torch.zeros(num_l3_nodes, dtype=torch.long, device=device)
+
+        # L6 prior from input
+        x_l6 = z
+
+        # L6 → L5 → L4 (lower trifold)
+        x_l5_down = self.unpool_l6_to_l5(x_l6)
+
+        # Need L2 graph structure - create minimal one
+        num_l2_nodes = x_l5_down.size(0)
+        edge_index_l2 = torch.stack([
+            torch.arange(num_l2_nodes, device=device),
+            torch.arange(num_l2_nodes, device=device)
+        ])
+        edge_type_l2 = torch.zeros(num_l2_nodes, dtype=torch.long, device=device)
+
+        x_l5_down = self.rgcn_l5(x_l5_down, edge_index_l2, edge_type_l2)
+        x_l4_down = self.unpool_l5_to_l4(x_l5_down)
+        x_l4_down = self.rgcn_l4(x_l4_down, edge_index_l3, edge_type_l3)
+
+        # Reconstruct to L1 size (inverse of pooling)
+        if target_size is None:
+            # Estimate based on pool ratio
+            target_size = int(num_l3_nodes / (self.pool_ratio ** 2))
+
+        # Simple repeat-based unpooling with exact size matching
+        repeat_factor = max(1, target_size // num_l3_nodes)
+        x_l1_reconstructed = x_l4_down.repeat_interleave(repeat_factor, dim=0)
+
+        # Pad or trim to exact target size
+        if x_l1_reconstructed.size(0) < target_size:
+            padding = torch.zeros(
+                target_size - x_l1_reconstructed.size(0),
+                x_l1_reconstructed.size(1),
+                device=device
+            )
+            x_l1_reconstructed = torch.cat([x_l1_reconstructed, padding], dim=0)
+        elif x_l1_reconstructed.size(0) > target_size:
+            x_l1_reconstructed = x_l1_reconstructed[:target_size]
+
+        return x_l1_reconstructed
+
 
 # Export public API
 __all__ = [
